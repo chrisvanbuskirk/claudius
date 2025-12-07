@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./packages/research-agent
+        working-directory: ./agent
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,7 +115,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: packages/research-agent/requirements.txt
+          cache-dependency-path: agent/requirements.txt
 
       - name: Install dependencies
         run: |
