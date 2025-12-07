@@ -1,4 +1,6 @@
-# Claudius - AI Research Assistant
+# Claudius - Development Guide
+
+This file provides context for AI assistants (like Claude Code) working on this project.
 
 ## Project Overview
 
@@ -9,21 +11,44 @@ Claudius is a macOS desktop application that delivers personalized daily researc
 ```
 claudius/
 ├── agent/                    # Python research agent (Anthropic Agent SDK)
+│   ├── research.py          # Main research logic
+│   ├── briefing.py          # Briefing generation
+│   ├── config.py            # Agent configuration
+│   └── mcp_client.py        # MCP server client
 ├── packages/
 │   ├── frontend/            # React + Vite + Tailwind (Tauri webview)
+│   │   ├── src/
+│   │   │   ├── components/  # Reusable React components
+│   │   │   ├── pages/       # Route pages (Home, History, Settings)
+│   │   │   ├── hooks/       # Custom React hooks
+│   │   │   └── types/       # TypeScript types
+│   │   └── vitest.config.ts # Test configuration
 │   ├── shared/              # Shared TypeScript types and database utilities
+│   │   ├── src/
+│   │   │   ├── db/          # Database operations (sql.js)
+│   │   │   ├── config/      # Configuration management
+│   │   │   └── types/       # Shared type definitions
+│   │   └── __tests__/       # Unit tests (75+ tests)
 │   ├── cli/                 # Command-line interface
-│   └── mcp-server/          # MCP server for tool integrations
+│   └── mcp-server/          # MCP server for Claude Desktop integration
 ├── src-tauri/               # Rust backend (Tauri 2.0)
-└── package.json             # npm workspaces root
+│   ├── src/
+│   │   ├── main.rs          # Entry point
+│   │   ├── commands.rs      # Tauri commands (IPC)
+│   │   └── db.rs            # Rust database layer
+│   └── tauri.conf.json      # Tauri configuration
+└── .github/workflows/       # CI/CD workflows
+    ├── ci.yml               # Build, test, lint on push/PR
+    └── release.yml          # Release builds on tags
 ```
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide icons
 - **Desktop**: Tauri 2.0 (Rust)
 - **Agent**: Python with Anthropic Agent SDK
-- **Database**: SQLite via sql.js (browser-compatible)
+- **Database**: SQLite via sql.js (browser) and rusqlite (Rust)
+- **Testing**: Vitest, React Testing Library
 - **Build**: npm workspaces monorepo
 
 ## Development Commands
@@ -34,89 +59,167 @@ npm install
 
 # Run Tauri desktop app in dev mode
 cargo tauri dev
+# OR
+npm run dev:tauri
+
+# Run frontend only (browser mode with mock data)
+npm run dev
 
 # Build production app
 cargo tauri build
 
-# Run frontend only (browser)
-npm run dev -w @claudius/frontend
+# Run all tests
+npm test
 
-# Build all packages
+# Run tests with coverage
+npm run test:coverage
+
+# Run specific package tests
+npm test -w @claudius/shared
+npm test -w @claudius/frontend
+
+# Type check all packages
 npm run build
 
-# Type check
-npm run typecheck
+# Python agent tests
+cd agent && pytest
 ```
 
 ## Key Files
 
-- `src-tauri/tauri.conf.json` - Tauri configuration
-- `src-tauri/src/main.rs` - Rust entry point
-- `packages/frontend/src/App.tsx` - React app entry
-- `packages/frontend/src/hooks/useTauri.ts` - Tauri IPC bridge with mock data fallback
-- `packages/shared/src/db/` - Database operations
-- `agent/research.py` - Main research agent logic
+| File | Purpose |
+|------|---------|
+| `src-tauri/tauri.conf.json` | Tauri app configuration, permissions |
+| `src-tauri/src/main.rs` | Rust entry point, command registration |
+| `src-tauri/src/commands.rs` | IPC commands called from frontend |
+| `packages/frontend/src/App.tsx` | React router, main layout |
+| `packages/frontend/src/hooks/useTauri.ts` | Tauri IPC bridge with mock data fallback |
+| `packages/shared/src/db/` | Database operations (briefings, feedback) |
+| `packages/shared/src/db/schema.ts` | SQLite schema definition |
+| `agent/research.py` | Main research agent logic |
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure:
-- `ANTHROPIC_API_KEY` - Required for Claude API
-- `GITHUB_TOKEN` - Optional, for GitHub MCP server
-- `FIRECRAWL_API_KEY` - Optional, for web scraping
+Required in `.env` (copy from `.env.example`):
+- `ANTHROPIC_API_KEY` - Required for Claude API access
+
+Optional:
+- `GITHUB_TOKEN` - For GitHub MCP server
+- `FIRECRAWL_API_KEY` - For web scraping capabilities
 
 ## Database Schema
 
-SQLite database with tables:
-- `topics` - Research topics/interests
-- `briefings` - Generated research briefings
-- `feedback` - User feedback on briefings
-- `mcp_servers` - MCP server configurations
-- `settings` - App settings
+SQLite database (`~/.claudius/claudius.db`) with tables:
+- `briefings` - Generated research briefings (id, date, title, cards JSON)
+- `briefing_cards` - Individual briefing cards (foreign key to briefings)
+- `feedback` - User feedback on briefings/cards (rating, reason)
+- `feedback_patterns` - Aggregated feedback patterns by topic
+- `research_logs` - Audit log of research operations
 
 ## Testing
 
 Tests are organized by package:
-- `packages/shared/__tests__/` - Database and utility tests
-- `packages/frontend/__tests__/` - React component tests
-- `packages/cli/__tests__/` - CLI command tests
-- `agent/tests/` - Python agent tests
+
+```
+packages/shared/__tests__/
+├── db/
+│   ├── index.test.ts      # Database lifecycle tests
+│   ├── briefings.test.ts  # CRUD operations for briefings
+│   └── feedback.test.ts   # Feedback operations
+└── config/
+    └── manager.test.ts    # Configuration management
+
+packages/frontend/src/
+└── *.test.tsx             # Component tests (to be added)
+```
 
 Run tests:
 ```bash
-# JavaScript/TypeScript tests
-npm test
-
-# Python tests
-cd agent && pytest
+npm test                    # All tests
+npm test -w @claudius/shared # Shared package only
 ```
 
 ## Code Style
 
-- TypeScript: Follow existing patterns, use strict mode
-- React: Functional components with hooks
-- Rust: Follow rustfmt conventions
-- Python: Follow PEP 8, use type hints
+- **TypeScript**: Strict mode, prefer explicit types
+- **React**: Functional components with hooks, avoid class components
+- **Rust**: Follow rustfmt conventions (`cargo fmt`)
+- **Python**: PEP 8, use type hints, run `black` for formatting
 
 ## Git Workflow
 
-- `main` - Protected, requires PR with 1 approval
-- `develop` - Integration branch for features
-- Feature branches from `develop`
+- `main` - Protected branch, requires PR approval
+- `develop` - Integration branch, merge features here
+- Feature branches from `develop`, named `feature/<description>`
 
 ## Common Tasks
 
 ### Adding a new Tauri command
-1. Add command in `src-tauri/src/commands.rs`
-2. Register in `src-tauri/src/main.rs`
-3. Add TypeScript types in `packages/frontend/src/types/`
-4. Use via `invoke()` in frontend
+
+1. Add command function in `src-tauri/src/commands.rs`:
+```rust
+#[tauri::command]
+pub async fn my_command(arg: String) -> Result<String, String> {
+    Ok(format!("Hello {}", arg))
+}
+```
+
+2. Register in `src-tauri/src/main.rs`:
+```rust
+.invoke_handler(tauri::generate_handler![
+    commands::my_command,  // Add here
+])
+```
+
+3. Call from frontend:
+```typescript
+import { invoke } from '@tauri-apps/api/core';
+const result = await invoke<string>('my_command', { arg: 'world' });
+```
 
 ### Adding a new page
-1. Create component in `packages/frontend/src/pages/`
-2. Add route in `packages/frontend/src/App.tsx`
-3. Add nav item in `packages/frontend/src/components/Sidebar.tsx`
+
+1. Create component in `packages/frontend/src/pages/NewPage.tsx`
+2. Add route in `packages/frontend/src/App.tsx`:
+```tsx
+<Route path="/new" element={<NewPage />} />
+```
+3. Add nav link in `packages/frontend/src/components/Sidebar.tsx`
+
+### Adding a database operation
+
+1. Add function in `packages/shared/src/db/` (e.g., `briefings.ts`)
+2. Export from `packages/shared/src/db/index.ts`
+3. Add tests in `packages/shared/__tests__/db/`
+4. If needed in Tauri, mirror in `src-tauri/src/db.rs`
 
 ### Modifying database schema
+
 1. Update `packages/shared/src/db/schema.ts`
-2. Update `src-tauri/src/schema.sql`
-3. Add migration if needed
+2. Update `src-tauri/src/schema.sql` (if applicable)
+3. Consider adding migration logic for existing databases
+
+## Troubleshooting
+
+### Blank screen in Tauri app
+- Ensure using `HashRouter` not `BrowserRouter` (Tauri uses file:// protocol)
+- Check browser console for errors via Tauri's devtools
+
+### Tests failing with database errors
+- Each test should use a fresh temp database path
+- Call `closeDatabase()` in `afterEach` to reset singleton state
+
+### TypeScript errors after schema changes
+- Rebuild shared package: `npm run build -w @claudius/shared`
+- Restart TypeScript server in your editor
+
+## CI/CD
+
+GitHub Actions runs on push to `main`/`develop` and on PRs:
+
+1. **Lint & Type Check** - TypeScript compilation
+2. **Unit Tests** - Vitest for all packages (75+ tests)
+3. **Python Tests** - pytest for agent
+4. **Build Tauri** - macOS (universal), Windows, Ubuntu
+
+Release workflow triggers on version tags (`v*`) and creates draft releases with installers.
