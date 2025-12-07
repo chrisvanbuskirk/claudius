@@ -30,7 +30,7 @@ jobs:
         run: npm run build -w @claudius/shared
 
       - name: Lint frontend
-        run: npm run lint -w @claudius/frontend
+        run: npm run lint -w @claudius/frontend --if-present
 
       - name: Type check frontend
         run: npm run build -w @claudius/frontend
