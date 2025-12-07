@@ -222,7 +222,8 @@ export function useTopics() {
     setLoading(true);
     setError(null);
     try {
-      const newTopic: Topic = { id: Date.now().toString(), name, description, enabled: true };
+      const now = new Date().toISOString();
+      const newTopic: Topic = { id: Date.now().toString(), name, description, enabled: true, created_at: now, updated_at: now };
       const result = await safeInvoke<Topic>('add_topic', { name, description }, newTopic);
       setTopics(prev => [...prev, result]);
       return result;
