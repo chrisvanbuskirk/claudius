@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 
 type Tab = 'interests' | 'mcp' | 'research';
