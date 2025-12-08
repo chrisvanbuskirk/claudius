@@ -28,7 +28,6 @@ tokio-cron-scheduler = "0.13"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 cron = "0.13"
-keyring = "3"
 reqwest = { version = "0.12", features = ["json"] }
 regex = "1"
 image = "0.25"

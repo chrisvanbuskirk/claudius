@@ -69,11 +69,26 @@ claudius/
 │       ├── scheduler.rs  # Cron-based research scheduler
 │       └── db.rs         # SQLite database layer
 └── ~/.claudius/       # Config & data (created at runtime)
+    ├── .env              # API key (ANTHROPIC_API_KEY)
     ├── topics.json
     ├── mcp-servers.json
     ├── settings.json
     └── claudius.db
 ```
+
+## Data Storage
+
+All Claudius data is stored locally in `~/.claudius/`:
+
+| File | Contents |
+|------|----------|
+| `.env` | Your Anthropic API key (stored as `ANTHROPIC_API_KEY=sk-ant-...`) |
+| `topics.json` | Your configured research topics |
+| `mcp-servers.json` | MCP server configurations and API keys |
+| `settings.json` | App settings (schedule, model preferences, etc.) |
+| `claudius.db` | SQLite database with briefings, feedback, and research logs |
+
+**Note:** The `.env` file contains your API key in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
 
 ## Prerequisites
 

@@ -743,73 +743,128 @@ pub fn update_settings(settings: ResearchSettings) -> Result<ResearchSettings, S
 }
 
 // ============================================================================
-// API Key commands - Using OS keychain for secure storage
+// API Key commands - Using file-based storage in ~/.claudius/.env
 // ============================================================================
 
-const KEYRING_SERVICE: &str = "claudius";
-const KEYRING_USER: &str = "anthropic_api_key";
+fn get_env_file_path() -> PathBuf {
+    get_config_dir().join(".env")
+}
 
-/// Read API key from OS keychain
-fn read_api_key_from_keychain() -> Option<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
+/// Read API key from ~/.claudius/.env file
+fn read_api_key_from_file() -> Option<String> {
+    let env_path = get_env_file_path();
 
-    match entry.get_password() {
-        Ok(key) => {
-            tracing::debug!("Successfully read API key from keychain");
-            Some(key)
-        }
-        Err(keyring::Error::NoEntry) => {
-            tracing::debug!("No API key found in keychain");
+    if !env_path.exists() {
+        tracing::debug!("No .env file found at {:?}", env_path);
+        return None;
+    }
+
+    match std::fs::read_to_string(&env_path) {
+        Ok(content) => {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with("ANTHROPIC_API_KEY=") {
+                    let key = line.trim_start_matches("ANTHROPIC_API_KEY=").trim();
+                    // Remove quotes if present
+                    let key = key.trim_matches('"').trim_matches('\'');
+                    if !key.is_empty() {
+                        tracing::info!("Successfully read API key from .env file");
+                        return Some(key.to_string());
+                    }
+                }
+            }
+            tracing::debug!("No ANTHROPIC_API_KEY found in .env file");
             None
         }
         Err(e) => {
-            tracing::warn!("Failed to read API key from keychain: {}", e);
+            tracing::warn!("Failed to read .env file: {}", e);
             None
         }
     }
 }
 
-/// Write API key to OS keychain
-fn write_api_key_to_keychain(api_key: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
+/// Write API key to ~/.claudius/.env file
+fn write_api_key_to_file(api_key: &str) -> Result<(), String> {
+    ensure_config_dir()?;
+    let env_path = get_env_file_path();
 
-    entry.set_password(api_key)
-        .map_err(|e| format!("Failed to save API key to keychain: {}", e))?;
+    tracing::info!("Saving API key to {:?}", env_path);
 
-    tracing::info!("Successfully saved API key to keychain");
+    // Read existing content to preserve other variables
+    let mut lines: Vec<String> = Vec::new();
+    let mut key_updated = false;
+
+    if env_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&env_path) {
+            for line in content.lines() {
+                if line.trim().starts_with("ANTHROPIC_API_KEY=") {
+                    lines.push(format!("ANTHROPIC_API_KEY={}", api_key));
+                    key_updated = true;
+                } else {
+                    lines.push(line.to_string());
+                }
+            }
+        }
+    }
+
+    if !key_updated {
+        lines.push(format!("ANTHROPIC_API_KEY={}", api_key));
+    }
+
+    let content = lines.join("\n") + "\n";
+
+    std::fs::write(&env_path, content)
+        .map_err(|e| format!("Failed to write .env file: {}", e))?;
+
+    // Set restrictive permissions (owner read/write only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&env_path, permissions);
+    }
+
+    tracing::info!("Successfully saved API key to .env file");
     Ok(())
 }
 
-/// Delete API key from OS keychain
-fn delete_api_key_from_keychain() -> Result<(), String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("Failed to access keychain: {}", e))?;
+/// Delete API key from ~/.claudius/.env file
+fn delete_api_key_from_file() -> Result<(), String> {
+    let env_path = get_env_file_path();
 
-    match entry.delete_credential() {
-        Ok(()) => {
-            tracing::info!("Successfully deleted API key from keychain");
-            Ok(())
-        }
-        Err(keyring::Error::NoEntry) => {
-            // Already deleted, that's fine
-            Ok(())
-        }
-        Err(e) => {
-            Err(format!("Failed to delete API key from keychain: {}", e))
+    if !env_path.exists() {
+        return Ok(());
+    }
+
+    // Read and filter out the API key line
+    if let Ok(content) = std::fs::read_to_string(&env_path) {
+        let lines: Vec<&str> = content
+            .lines()
+            .filter(|line| !line.trim().starts_with("ANTHROPIC_API_KEY="))
+            .collect();
+
+        if lines.is_empty() {
+            // If no other content, delete the file
+            let _ = std::fs::remove_file(&env_path);
+        } else {
+            let content = lines.join("\n") + "\n";
+            std::fs::write(&env_path, content)
+                .map_err(|e| format!("Failed to update .env file: {}", e))?;
         }
     }
+
+    Ok(())
 }
 
 /// Get the API key for use in research (returns full key, not masked)
 pub fn get_api_key_for_research() -> Option<String> {
-    read_api_key_from_keychain()
+    read_api_key_from_file()
 }
 
 #[tauri::command]
 pub fn get_api_key() -> Result<Option<String>, String> {
     // Return masked version with dots for security - typical password field style
-    if let Some(key) = read_api_key_from_keychain() {
+    if let Some(key) = read_api_key_from_file() {
         // Show dots representing the key length (capped at 20 for display)
         let dot_count = std::cmp::min(key.len(), 20);
         let masked = "•".repeat(dot_count);
@@ -829,17 +884,17 @@ pub fn set_api_key(api_key: String) -> Result<(), String> {
         return Err("Invalid API key format. Anthropic API keys start with 'sk-ant-'".to_string());
     }
 
-    write_api_key_to_keychain(&api_key)
+    write_api_key_to_file(&api_key)
 }
 
 #[tauri::command]
 pub fn has_api_key() -> Result<bool, String> {
-    Ok(read_api_key_from_keychain().is_some())
+    Ok(read_api_key_from_file().is_some())
 }
 
 #[tauri::command]
 pub fn clear_api_key() -> Result<(), String> {
-    delete_api_key_from_keychain()
+    delete_api_key_from_file()
 }
 
 // ============================================================================
