@@ -60,6 +60,9 @@ export function PopoverApp() {
   }
 
   async function handleRunNow() {
+    // Guard against concurrent clicks
+    if (isRunning) return;
+
     setIsRunning(true);
     try {
       await invoke('run_research_now');

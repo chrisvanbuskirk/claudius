@@ -52,8 +52,9 @@ impl McpConnection {
 
 impl Drop for McpConnection {
     fn drop(&mut self) {
-        // Clean up the child process
+        // Clean up the child process - kill and wait to avoid zombie processes
         let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
