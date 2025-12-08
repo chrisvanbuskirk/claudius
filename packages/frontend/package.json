@@ -1,6 +1,6 @@
 {
   "name": "@claudius/frontend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Frontend for Claudius - React + Vite + Tauri",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@tauri-apps/api": "^2.0.0",
     "cssesc": "^3.0.0",
     "date-fns": "^4.1.0",
+    "framer-motion": "^12.23.25",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

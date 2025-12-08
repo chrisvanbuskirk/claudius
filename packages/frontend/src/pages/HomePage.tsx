@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { BriefingCard } from '../components/BriefingCard';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { useBriefings } from '../hooks/useTauri';
+import { useResearch } from '../contexts/ResearchContext';
 import type { Briefing } from '../types';
 
 // Backend returns briefings with cards as JSON string
@@ -31,6 +32,7 @@ interface BriefingCardData {
 
 export function HomePage() {
   const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+  const { setIsResearchRunning } = useResearch();
 
   // Parse the cards JSON and flatten into individual briefing cards
   const briefings = useMemo(() => {
@@ -73,6 +75,7 @@ export function HomePage() {
   }, [rawBriefings]);
   const [refreshing, setRefreshing] = useState(false);
   const [runningResearch, setRunningResearch] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
 
   useEffect(() => {
     getTodaysBriefings();
@@ -88,14 +91,32 @@ export function HomePage() {
   };
 
   const handleRunResearch = async () => {
+    // Guard against concurrent research runs
+    if (runningResearch) return;
+
     setRunningResearch(true);
+    setIsResearchRunning(true); // Activate the purple border aura
+    setResearchError(null); // Clear any previous errors
+
+    // Safety timeout to prevent stuck purple glow (5 minutes)
+    const timeoutId = setTimeout(() => {
+      console.warn('Research timeout - forcing state reset after 5 minutes');
+      setRunningResearch(false);
+      setIsResearchRunning(false);
+      setResearchError('Research took too long and was stopped. Please try again with fewer topics.');
+    }, 5 * 60 * 1000);
+
     try {
       await invoke('run_research_now');
       await getTodaysBriefings();
     } catch (err) {
-      console.error('Research failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('Research failed:', errorMessage);
+      setResearchError(`Research failed: ${errorMessage}`);
     } finally {
+      clearTimeout(timeoutId); // Cancel timeout if research completes normally
       setRunningResearch(false);
+      setIsResearchRunning(false); // Deactivate the purple border aura
     }
   };
 
@@ -157,6 +178,28 @@ export function HomePage() {
       </div>
 
       <ActionableErrorsAlert />
+
+      {researchError && (
+        <div className="card p-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-900 dark:text-red-300 mb-1">
+                Research Failed
+              </h3>
+              <p className="text-sm text-red-700 dark:text-red-400">{researchError}</p>
+            </div>
+            <button
+              onClick={() => setResearchError(null)}
+              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading && !refreshing && (
         <div className="flex items-center justify-center py-12">
