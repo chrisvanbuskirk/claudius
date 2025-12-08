@@ -49,7 +49,7 @@ export function Sidebar() {
 
       <div className="p-4 border-t border-gray-200 dark:border-gray-800">
         <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
-          v0.1.0
+          v0.1.1
         </div>
       </div>
     </aside>

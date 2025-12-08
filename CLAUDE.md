@@ -51,11 +51,11 @@ claudius/
 
 ## Claude Models
 
-**IMPORTANT**: This project uses Claude 4.5 models exclusively. Do NOT use Claude 3.x model IDs.
+**IMPORTANT**: This project uses Claude 4.5 models. See https://platform.claude.com/docs/en/about-claude/models/overview
 
 | Model | Model ID | Use Case |
 |-------|----------|----------|
-| Haiku 4.5 | `claude-haiku-4-5-20241022` | Default for research (fastest, cheapest) |
+| Haiku 4.5 | `claude-haiku-4-5-20251001` | Default for research (fastest, cheapest) |
 | Sonnet 4.5 | `claude-sonnet-4-5-20250929` | Balanced quality/cost |
 | Opus 4.5 | `claude-opus-4-5-20251101` | Highest quality |
 

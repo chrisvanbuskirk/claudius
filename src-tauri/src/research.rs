@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 /// Maximum number of tool use iterations to prevent infinite loops.
@@ -434,9 +434,12 @@ impl ResearchAgent {
             .collect();
 
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()
+                .expect("Failed to build HTTP client"),
             api_key,
-            model: model.unwrap_or_else(|| "claude-haiku-4-5-20241022".to_string()),
+            model: model.unwrap_or_else(|| "claude-haiku-4-5-20251001".to_string()),
             github_token,
             mcp_client: None,
             builtin_tools,
@@ -1041,7 +1044,7 @@ That's the summary!"#;
                 }
             ],
             research_time_ms: 1500,
-            model_used: "claude-haiku-4-5-20241022".to_string(),
+            model_used: "claude-haiku-4-5-20251001".to_string(),
             total_tokens: 2500,
         };
 
@@ -1060,7 +1063,7 @@ That's the summary!"#;
     #[test]
     fn test_research_agent_creation() {
         let agent = ResearchAgent::new("test-api-key".to_string(), None);
-        assert_eq!(agent.model, "claude-haiku-4-5-20241022");
+        assert_eq!(agent.model, "claude-haiku-4-5-20251001");
 
         let agent_custom = ResearchAgent::new(
             "test-api-key".to_string(),

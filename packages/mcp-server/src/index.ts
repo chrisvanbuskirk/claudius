@@ -10,7 +10,7 @@ import { BriefingsDB } from './db.js';
 const db = new BriefingsDB();
 
 const server = new Server(
-  { name: 'claudius', version: '0.1.0' },
+  { name: 'claudius', version: '0.1.1' },
   { capabilities: { tools: {} } }
 );
 

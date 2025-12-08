@@ -157,7 +157,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
     if !path.exists() {
         return Ok(ResearchSettings {
             schedule_cron: "0 6 * * *".to_string(),
-            model: "claude-haiku-4-5-20241022".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
             research_depth: "medium".to_string(),
             max_sources_per_topic: 10,
             enable_notifications: true,
@@ -389,7 +389,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     // Get settings
     let settings = read_settings().unwrap_or_else(|_| ResearchSettings {
         schedule_cron: "0 6 * * *".to_string(),
-        model: "claude-haiku-4-5-20241022".to_string(),
+        model: "claude-haiku-4-5-20251001".to_string(),
         research_depth: "medium".to_string(),
         max_sources_per_topic: 10,
         enable_notifications: true,
@@ -496,7 +496,7 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
     // Get settings
     let settings = read_settings().unwrap_or_else(|_| ResearchSettings {
         schedule_cron: "0 6 * * *".to_string(),
-        model: "claude-haiku-4-5-20241022".to_string(),
+        model: "claude-haiku-4-5-20251001".to_string(),
         research_depth: "medium".to_string(),
         max_sources_per_topic: 10,
         enable_notifications: true,

@@ -665,7 +665,7 @@ function ResearchSettingsTab() {
             onChange={(e) => setLocalSettings(prev => ({ ...prev!, model: e.target.value }))}
             className="input w-full"
           >
-            <option value="claude-haiku-4-5-20241022">Claude Haiku 4.5 (fastest, cheapest)</option>
+            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (fastest, cheapest)</option>
             <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5 (balanced)</option>
             <option value="claude-opus-4-5-20251101">Claude Opus 4.5 (most capable)</option>
           </select>
