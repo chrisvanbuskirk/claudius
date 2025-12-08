@@ -130,8 +130,11 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Build shared package first
+        run: npm run build -w @claudius/shared
+
       - name: Build frontend (required for Tauri)
-        run: npm run build
+        run: npm run build -w @claudius/frontend
 
       - name: Run Rust tests
         working-directory: ./src-tauri
