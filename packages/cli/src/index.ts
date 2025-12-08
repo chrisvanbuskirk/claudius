@@ -12,6 +12,7 @@ import { registerResearchCommands } from './commands/research.js';
 import { registerBriefingsCommands } from './commands/briefings.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerDBCommands } from './commands/db.js';
+import { registerSchedulerCommands } from './commands/scheduler.js';
 
 // Get package.json for version
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +34,7 @@ registerResearchCommands(program);
 registerBriefingsCommands(program);
 registerConfigCommands(program);
 registerDBCommands(program);
+registerSchedulerCommands(program);
 
 // Parse command line arguments
 program.parse();

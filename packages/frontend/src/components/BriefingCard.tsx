@@ -1,7 +1,17 @@
 import { useState } from 'react';
 import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
+
+// Parse date string as local time (not UTC)
+// "2025-12-08" should be today in local time, not yesterday
+function parseLocalDate(dateStr: string): Date {
+  // If it's a date-only string (YYYY-MM-DD), append local midnight time
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return parseISO(dateStr + 'T12:00:00'); // Use noon to avoid DST edge cases
+  }
+  return new Date(dateStr);
+}
 
 interface BriefingCardProps {
   briefing: Briefing;
@@ -12,6 +22,11 @@ interface BriefingCardProps {
 export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
+
+  // Default values for optional fields
+  const relevance = (briefing.relevance || 'medium') as 'high' | 'medium' | 'low';
+  const sources = briefing.sources || [];
+  const topicName = briefing.topic_name || 'General';
 
   const relevanceColors = {
     high: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800',
@@ -38,14 +53,14 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <span className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[briefing.relevance]}`}>
-              {briefing.relevance.toUpperCase()}
+            <span className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[relevance]}`}>
+              {relevance.toUpperCase()}
             </span>
             <span className="text-sm text-gray-500 dark:text-gray-400">
-              {briefing.topic_name}
+              {topicName}
             </span>
             <span className="text-xs text-gray-400 dark:text-gray-500">
-              {formatDistanceToNow(new Date(briefing.created_at), { addSuffix: true })}
+              {formatDistanceToNow(parseLocalDate(briefing.created_at), { addSuffix: true })}
             </span>
           </div>
           <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
@@ -66,13 +81,13 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
         </div>
       )}
 
-      {briefing.sources.length > 0 && (
+      {sources.length > 0 && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Sources ({briefing.sources.length})
+            Sources ({sources.length})
           </h4>
           <ul className="space-y-1">
-            {briefing.sources.slice(0, expanded ? undefined : 3).map((source, idx) => (
+            {sources.slice(0, expanded ? undefined : 3).map((source, idx) => (
               <li key={idx}>
                 <a
                   href={source}
@@ -86,12 +101,12 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
               </li>
             ))}
           </ul>
-          {briefing.sources.length > 3 && !expanded && (
+          {sources.length > 3 && !expanded && (
             <button
               onClick={() => setExpanded(true)}
               className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mt-1"
             >
-              +{briefing.sources.length - 3} more sources
+              +{sources.length - 3} more sources
             </button>
           )}
         </div>

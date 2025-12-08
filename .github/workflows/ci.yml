@@ -106,27 +106,36 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-  python-tests:
-    name: Python Tests
+  rust-tests:
+    name: Rust Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./agent
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: agent/requirements.txt
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies (Ubuntu)
         run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Run tests
-        run: pytest --tb=short -v || echo "No tests found yet"
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build shared package first
+        run: npm run build -w @claudius/shared
+
+      - name: Build frontend (required for Tauri)
+        run: npm run build -w @claudius/frontend
+
+      - name: Run Rust tests
+        working-directory: ./src-tauri
+        run: cargo test --verbose

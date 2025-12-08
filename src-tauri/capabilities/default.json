@@ -1,0 +1,22 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for all Claudius windows",
+  "windows": ["main", "popover", "settings"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "shell:allow-open",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted",
+    "positioner:default",
+    "positioner:allow-move-window",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
+  ]
+}

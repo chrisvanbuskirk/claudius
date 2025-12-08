@@ -2,10 +2,10 @@ import { Command } from 'commander';
 import { success, error, info, warn } from '../utils/output.js';
 import { getConfigDir, loadConfig, saveConfig } from '../utils/config.js';
 import { execSync as _execSync } from 'node:child_process';
-import { join as _join } from 'node:path';
-// Note: execSync and join are available for future editor integration
-void _execSync; void _join;
-import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+// Note: execSync is available for future editor integration
+void _execSync;
+import { existsSync, readFileSync } from 'node:fs';
 
 export function registerConfigCommands(program: Command): void {
   const config = program
@@ -141,6 +141,116 @@ export function registerConfigCommands(program: Command): void {
         info(`Location: ${configDir}`);
       } catch (err) {
         error(`Failed to initialize configuration: ${err}`);
+      }
+    });
+
+  // API Key management commands - using file-based storage in ~/.claudius/.env
+  config
+    .command('api-key')
+    .description('Show API key status (stored in ~/.claudius/.env)')
+    .action(() => {
+      try {
+        const configDir = getConfigDir();
+        const envPath = join(configDir, '.env');
+
+        if (existsSync(envPath)) {
+          const content = readFileSync(envPath, 'utf-8');
+          const keyLine = content.split('\n').find(line => line.startsWith('ANTHROPIC_API_KEY='));
+          if (keyLine) {
+            const key = keyLine.replace('ANTHROPIC_API_KEY=', '').trim().replace(/["']/g, '');
+            if (key.length > 12) {
+              const masked = `${key.slice(0, 8)}...${key.slice(-4)}`;
+              success(`API key configured: ${masked}`);
+            } else if (key) {
+              success('API key configured: ****');
+            } else {
+              warn('No API key configured');
+              info('Set your API key with: claudius config api-key set <your-key>');
+            }
+            return;
+          }
+        }
+
+        warn('No API key configured');
+        info('Set your API key with: claudius config api-key set <your-key>');
+      } catch (err) {
+        error(`Failed to check API key: ${err}`);
+      }
+    });
+
+  config
+    .command('api-key set <key>')
+    .description('Set your Anthropic API key (stored in ~/.claudius/.env)')
+    .action((key: string) => {
+      try {
+        if (!key.startsWith('sk-ant-')) {
+          error("Invalid API key format. Anthropic API keys start with 'sk-ant-'");
+          return;
+        }
+
+        const configDir = getConfigDir();
+        const envPath = join(configDir, '.env');
+
+        // Read existing content to preserve other variables
+        let lines: string[] = [];
+        let keyUpdated = false;
+
+        if (existsSync(envPath)) {
+          const content = readFileSync(envPath, 'utf-8');
+          for (const line of content.split('\n')) {
+            if (line.trim().startsWith('ANTHROPIC_API_KEY=')) {
+              lines.push(`ANTHROPIC_API_KEY=${key}`);
+              keyUpdated = true;
+            } else if (line.trim()) {
+              lines.push(line);
+            }
+          }
+        }
+
+        if (!keyUpdated) {
+          lines.push(`ANTHROPIC_API_KEY=${key}`);
+        }
+
+        const { writeFileSync, mkdirSync } = require('node:fs');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(envPath, lines.join('\n') + '\n', { mode: 0o600 });
+
+        success('API key saved to ~/.claudius/.env');
+        info('This key is used by both the CLI and desktop app.');
+      } catch (err) {
+        error(`Failed to set API key: ${err}`);
+      }
+    });
+
+  config
+    .command('api-key clear')
+    .description('Remove your Anthropic API key')
+    .action(() => {
+      try {
+        const configDir = getConfigDir();
+        const envPath = join(configDir, '.env');
+
+        if (!existsSync(envPath)) {
+          success('API key already cleared');
+          return;
+        }
+
+        const content = readFileSync(envPath, 'utf-8');
+        const lines = content
+          .split('\n')
+          .filter(line => !line.trim().startsWith('ANTHROPIC_API_KEY='));
+
+        if (lines.filter(l => l.trim()).length === 0) {
+          const { unlinkSync } = require('node:fs');
+          unlinkSync(envPath);
+        } else {
+          const { writeFileSync } = require('node:fs');
+          writeFileSync(envPath, lines.join('\n') + '\n', { mode: 0o600 });
+        }
+
+        success('API key cleared');
+      } catch (err) {
+        error(`Failed to clear API key: ${err}`);
       }
     });
 }
