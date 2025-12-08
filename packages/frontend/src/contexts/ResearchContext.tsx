@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
 interface ResearchContextType {
   isResearchRunning: boolean;
@@ -7,8 +7,13 @@ interface ResearchContextType {
 
 const ResearchContext = createContext<ResearchContextType | undefined>(undefined);
 
-export function ResearchProvider({ children }: { children: ReactNode }) {
+export function ResearchProvider({ children }: { children: ReactNode}) {
   const [isResearchRunning, setIsResearchRunning] = useState(false);
+
+  // Reset research state on mount (cleanup from any stale state)
+  useEffect(() => {
+    setIsResearchRunning(false);
+  }, []);
 
   return (
     <ResearchContext.Provider value={{ isResearchRunning, setIsResearchRunning }}>
