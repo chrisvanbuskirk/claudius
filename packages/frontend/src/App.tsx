@@ -4,6 +4,7 @@ import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { Component, ErrorInfo, ReactNode } from 'react';
+import { ResearchProvider } from './contexts/ResearchContext';
 
 // Error boundary to catch React errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -38,15 +39,17 @@ export function App() {
   console.log('App rendering');
   return (
     <ErrorBoundary>
-      <HashRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-          </Routes>
-        </Layout>
-      </HashRouter>
+      <ResearchProvider>
+        <HashRouter>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/history" element={<HistoryPage />} />
+            </Routes>
+          </Layout>
+        </HashRouter>
+      </ResearchProvider>
     </ErrorBoundary>
   );
 }

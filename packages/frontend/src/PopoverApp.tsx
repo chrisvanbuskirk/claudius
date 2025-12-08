@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { LoadingBorderAura } from './components/LoadingBorderAura';
+import { useResearch } from './contexts/ResearchContext';
 
 interface Briefing {
   id: number;
@@ -28,6 +30,7 @@ interface SchedulerStatus {
 }
 
 export function PopoverApp() {
+  const { setIsResearchRunning } = useResearch();
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
@@ -64,6 +67,7 @@ export function PopoverApp() {
     if (isRunning) return;
 
     setIsRunning(true);
+    setIsResearchRunning(true); // Activate the purple border aura
     try {
       await invoke('run_research_now');
       // Reload briefings after research completes
@@ -73,6 +77,7 @@ export function PopoverApp() {
       console.error('Research failed:', err);
     } finally {
       setIsRunning(false);
+      setIsResearchRunning(false); // Deactivate the purple border aura
     }
   }
 
@@ -102,6 +107,7 @@ export function PopoverApp() {
 
   return (
     <div className="w-80 h-[520px] bg-white dark:bg-gray-900 rounded-lg shadow-2xl overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700">
+      <LoadingBorderAura isActive={isRunning} />
       {/* Header with branding - matches main app sidebar */}
       <div className="p-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white">
         <div className="flex items-center justify-between">

@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { BriefingCard } from '../components/BriefingCard';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { useBriefings } from '../hooks/useTauri';
+import { useResearch } from '../contexts/ResearchContext';
 import type { Briefing } from '../types';
 
 // Backend returns briefings with cards as JSON string
@@ -31,6 +32,7 @@ interface BriefingCardData {
 
 export function HomePage() {
   const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+  const { setIsResearchRunning } = useResearch();
 
   // Parse the cards JSON and flatten into individual briefing cards
   const briefings = useMemo(() => {
@@ -89,6 +91,7 @@ export function HomePage() {
 
   const handleRunResearch = async () => {
     setRunningResearch(true);
+    setIsResearchRunning(true); // Activate the purple border aura
     try {
       await invoke('run_research_now');
       await getTodaysBriefings();
@@ -96,6 +99,7 @@ export function HomePage() {
       console.error('Research failed:', err);
     } finally {
       setRunningResearch(false);
+      setIsResearchRunning(false); // Deactivate the purple border aura
     }
   };
 
