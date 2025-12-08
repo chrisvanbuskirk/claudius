@@ -1,16 +1,77 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Search, Filter, Calendar, Loader2, AlertCircle } from 'lucide-react';
 // date-fns available for future use
 import { BriefingCard } from '../components/BriefingCard';
 import { useBriefings, useTopics } from '../hooks/useTauri';
-import type { BriefingFilters } from '../types';
+import type { BriefingFilters, Briefing } from '../types';
+
+// Backend returns briefings with cards as JSON string
+interface BackendBriefing {
+  id: number;
+  date: string;
+  title: string;
+  cards: string; // JSON string of cards array
+  research_time_ms?: number;
+  model_used?: string;
+  total_tokens?: number;
+}
+
+// Card data within the cards JSON
+interface BriefingCardData {
+  title: string;
+  summary: string;
+  sources?: string[];
+  suggested_next?: string;
+  relevance?: string;
+  topic?: string;
+}
 
 export function HistoryPage() {
-  const { briefings, loading, error, searchBriefings, submitFeedback } = useBriefings();
+  const { briefings: rawBriefings, loading, error, searchBriefings, submitFeedback } = useBriefings();
   const { topics } = useTopics();
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<BriefingFilters>({});
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Parse the cards JSON and flatten into individual briefing cards
+  const briefings = useMemo(() => {
+    const result: Briefing[] = [];
+    for (const raw of rawBriefings as unknown as BackendBriefing[]) {
+      try {
+        const cards: BriefingCardData[] = typeof raw.cards === 'string'
+          ? JSON.parse(raw.cards)
+          : raw.cards || [];
+
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i];
+          result.push({
+            id: `${raw.id}-${i}`,
+            title: card.title || raw.title,
+            summary: card.summary || '',
+            sources: card.sources || [],
+            suggested_next: card.suggested_next,
+            relevance: (card.relevance as 'high' | 'medium' | 'low') || 'medium',
+            created_at: raw.date,
+            topic_id: '',
+            topic_name: card.topic || 'General',
+          });
+        }
+      } catch {
+        // If cards parsing fails, create a single card from the briefing
+        result.push({
+          id: String(raw.id),
+          title: raw.title,
+          summary: 'Unable to parse briefing cards',
+          sources: [],
+          relevance: 'medium',
+          created_at: raw.date,
+          topic_id: '',
+          topic_name: 'General',
+        });
+      }
+    }
+    return result;
+  }, [rawBriefings]);
 
   useEffect(() => {
     searchBriefings({});

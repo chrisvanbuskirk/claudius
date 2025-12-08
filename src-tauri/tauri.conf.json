@@ -12,13 +12,43 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Claudius",
         "width": 1200,
         "height": 800,
+        "visible": true,
+        "center": true,
         "resizable": true,
         "fullscreen": false
+      },
+      {
+        "label": "popover",
+        "title": "Claudius",
+        "width": 320,
+        "height": 480,
+        "url": "popover.html",
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "transparent": true
+      },
+      {
+        "label": "settings",
+        "title": "Claudius Settings",
+        "width": 600,
+        "height": 500,
+        "url": "settings.html",
+        "visible": false,
+        "center": true,
+        "resizable": true
       }
     ],
+    "trayIcon": {
+      "iconPath": "icons/32x32.png",
+      "iconAsTemplate": true
+    },
     "security": {
       "csp": null
     }

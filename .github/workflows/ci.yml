@@ -106,27 +106,23 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-  python-tests:
-    name: Python Tests
+  rust-tests:
+    name: Rust Tests
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./agent
+        working-directory: ./src-tauri
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: agent/requirements.txt
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
+      - name: Install dependencies (Ubuntu)
         run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Run tests
-        run: pytest --tb=short -v || echo "No tests found yet"
+      - name: Run Rust tests
+        run: cargo test --verbose

@@ -29,82 +29,13 @@ async function getInvoke() {
   }
 }
 
-// Mock data for browser development
-const mockBriefings: Briefing[] = [
-  {
-    id: '1',
-    title: 'Swift 6 Migration Updates',
-    summary: 'Swift 6 introduces strict concurrency checking by default. The migration path involves enabling warnings first, then fixing data race issues incrementally.',
-    sources: ['https://swift.org/blog', 'https://developer.apple.com'],
-    suggested_next: 'Review your async/await usage patterns',
-    relevance: 'high',
-    created_at: new Date().toISOString(),
-    topic_id: 'topic-1',
-    topic_name: 'Swift Development',
-    content: 'Swift 6 represents a major step forward in memory safety. The new strict concurrency model helps catch data races at compile time rather than runtime. Key changes include:\n\n1. Sendable checking is now enforced by default\n2. Actor isolation is stricter\n3. New async/await patterns are recommended\n\nTo migrate, start by enabling warnings in Swift 5.10, then gradually fix issues before upgrading to Swift 6.',
-  },
-  {
-    id: '2',
-    title: 'New React 19 Features',
-    summary: 'React 19 brings automatic batching improvements and new hooks for form handling. Server Components are now stable.',
-    sources: ['https://react.dev/blog', 'https://github.com/facebook/react'],
-    relevance: 'medium',
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-    topic_id: 'topic-2',
-    topic_name: 'React',
-  },
-  {
-    id: '3',
-    title: 'Rust 2024 Edition Preview',
-    summary: 'The Rust 2024 edition brings new syntax improvements and better async support. Notable changes include gen blocks for generators.',
-    sources: ['https://blog.rust-lang.org'],
-    suggested_next: 'Try the nightly compiler with edition = "2024"',
-    relevance: 'low',
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-    topic_id: 'topic-3',
-    topic_name: 'Rust',
-  },
-];
-
-const mockTopics: Topic[] = [
-  { id: '1', name: 'Swift development', description: 'iOS and macOS development with Swift', enabled: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: '2', name: 'Machine learning', description: 'ML and AI research', enabled: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: '3', name: 'React', description: 'React and frontend development', enabled: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-];
-
-const mockServers: MCPServer[] = [
-  { id: '1', name: 'Google Calendar', enabled: true, config: { type: 'calendar' }, last_used: new Date().toISOString() },
-  { id: '2', name: 'GitHub', enabled: true, config: { type: 'github' }, last_used: new Date().toISOString() },
-  { id: '3', name: 'Gmail', enabled: false, config: { type: 'email' } },
-];
-
-const mockSettings: ResearchSettings = {
-  schedule_cron: '0 6 * * *',
-  model: 'claude-sonnet-4-5-20250929',
-  research_depth: 'medium',
-  max_sources_per_topic: 10,
-  enable_notifications: true,
-};
-
-// Helper to safely invoke Tauri commands with fallback
-async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>, mockData?: T): Promise<T> {
+// Helper to safely invoke Tauri commands - no mock data, real config files only
+async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const invoke = await getInvoke();
   if (!invoke) {
-    console.log(`[Dev Mode] Mock response for: ${cmd}`, args);
-    if (mockData !== undefined) {
-      return mockData;
-    }
-    throw new Error('Running in browser mode - Tauri not available');
+    throw new Error('Running in browser mode - Tauri not available. Run with `npm run dev:tauri` for full functionality.');
   }
-  try {
-    return await invoke(cmd, args) as T;
-  } catch (err) {
-    console.log(`[Tauri] Command ${cmd} failed, using mock data:`, err);
-    if (mockData !== undefined) {
-      return mockData;
-    }
-    throw err;
-  }
+  return await invoke(cmd, args) as T;
 }
 
 export function useBriefings() {
@@ -116,12 +47,13 @@ export function useBriefings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Briefing[]>('get_briefings', { limit }, mockBriefings);
+      const result = await safeInvoke<Briefing[]>('get_briefings', { limit });
       setBriefings(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch briefings';
       setError(errorMessage);
+      setBriefings([]);
       return [];
     } finally {
       setLoading(false);
@@ -132,12 +64,13 @@ export function useBriefings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Briefing[]>('get_todays_briefings', undefined, mockBriefings);
+      const result = await safeInvoke<Briefing[]>('get_todays_briefings');
       setBriefings(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch today\'s briefings';
       setError(errorMessage);
+      setBriefings([]);
       return [];
     } finally {
       setLoading(false);
@@ -148,7 +81,7 @@ export function useBriefings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Briefing>('get_briefing_by_id', { id }, mockBriefings[0]);
+      const result = await safeInvoke<Briefing>('get_briefing_by_id', { id });
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch briefing';
@@ -163,12 +96,13 @@ export function useBriefings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Briefing[]>('search_briefings', { filters }, mockBriefings);
+      const result = await safeInvoke<Briefing[]>('search_briefings', { query: filters.search_query || '' });
       setBriefings(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to search briefings';
       setError(errorMessage);
+      setBriefings([]);
       return [];
     } finally {
       setLoading(false);
@@ -177,7 +111,7 @@ export function useBriefings() {
 
   const submitFeedback = useCallback(async (feedback: UserFeedback) => {
     try {
-      await safeInvoke('submit_feedback', { feedback }, undefined);
+      await safeInvoke('submit_feedback', { feedback });
       console.log('Feedback submitted:', feedback);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to submit feedback';
@@ -206,12 +140,13 @@ export function useTopics() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Topic[]>('get_topics', undefined, mockTopics);
+      const result = await safeInvoke<Topic[]>('get_topics');
       setTopics(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch topics';
       setError(errorMessage);
+      setTopics([]);
       return [];
     } finally {
       setLoading(false);
@@ -222,9 +157,7 @@ export function useTopics() {
     setLoading(true);
     setError(null);
     try {
-      const now = new Date().toISOString();
-      const newTopic: Topic = { id: Date.now().toString(), name, description, enabled: true, created_at: now, updated_at: now };
-      const result = await safeInvoke<Topic>('add_topic', { name, description }, newTopic);
+      const result = await safeInvoke<Topic>('add_topic', { name, description });
       setTopics(prev => [...prev, result]);
       return result;
     } catch (err) {
@@ -240,12 +173,8 @@ export function useTopics() {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke('update_topic', { id, name, description, enabled }, undefined);
-      setTopics(prev => prev.map(t =>
-        t.id === id
-          ? { ...t, name: name ?? t.name, description: description ?? t.description, enabled: enabled ?? t.enabled }
-          : t
-      ));
+      const result = await safeInvoke<Topic>('update_topic', { id, name, description, enabled });
+      setTopics(prev => prev.map(t => t.id === id ? result : t));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to update topic';
       setError(errorMessage);
@@ -258,7 +187,7 @@ export function useTopics() {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke('delete_topic', { id }, undefined);
+      await safeInvoke('delete_topic', { id });
       setTopics(prev => prev.filter(t => t.id !== id));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete topic';
@@ -292,13 +221,30 @@ export function useMCPServers() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<MCPServer[]>('get_mcp_servers', undefined, mockServers);
+      const result = await safeInvoke<MCPServer[]>('get_mcp_servers');
       setServers(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch MCP servers';
       setError(errorMessage);
+      setServers([]);
       return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const addServer = useCallback(async (name: string, config: Record<string, unknown>) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await safeInvoke<MCPServer>('add_mcp_server', { name, config_data: config });
+      setServers(prev => [...prev, result]);
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add MCP server';
+      setError(errorMessage);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -308,10 +254,24 @@ export function useMCPServers() {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke('toggle_mcp_server', { id, enabled }, undefined);
-      setServers(prev => prev.map(s => s.id === id ? { ...s, enabled } : s));
+      const result = await safeInvoke<MCPServer>('toggle_mcp_server', { id, enabled });
+      setServers(prev => prev.map(s => s.id === id ? result : s));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to toggle MCP server';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const removeServer = useCallback(async (id: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await safeInvoke('remove_mcp_server', { id });
+      setServers(prev => prev.filter(s => s.id !== id));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to remove MCP server';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -327,7 +287,9 @@ export function useMCPServers() {
     loading,
     error,
     getServers,
+    addServer,
     toggleServer,
+    removeServer,
   };
 }
 
@@ -340,7 +302,7 @@ export function useSettings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<ResearchSettings>('get_settings', undefined, mockSettings);
+      const result = await safeInvoke<ResearchSettings>('get_settings');
       setSettings(result);
       return result;
     } catch (err) {
@@ -356,21 +318,26 @@ export function useSettings() {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke('update_settings', { settings: updates }, undefined);
-      setSettings(prev => prev ? { ...prev, ...updates } : null);
+      // Merge with current settings for full update
+      const fullSettings = settings ? { ...settings, ...updates } : null;
+      if (!fullSettings) {
+        throw new Error('No current settings to update');
+      }
+      const result = await safeInvoke<ResearchSettings>('update_settings', { settings: fullSettings });
+      setSettings(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to update settings';
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [settings]);
 
   const runResearch = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke('run_research_now', undefined, undefined);
+      await safeInvoke<string>('run_research_now');
       console.log('Research triggered');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to run research';
@@ -391,5 +358,58 @@ export function useSettings() {
     getSettings,
     updateSettings,
     runResearch,
+  };
+}
+
+// API Key Hook
+export function useApiKey() {
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkApiKey = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const masked = await safeInvoke<string | null>('get_api_key');
+      const exists = await safeInvoke<boolean>('has_api_key');
+      setMaskedKey(masked);
+      setHasKey(exists);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to check API key';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const setApiKey = useCallback(async (apiKey: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await safeInvoke<void>('set_api_key', { api_key: apiKey });
+      await checkApiKey();
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to set API key';
+      setError(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [checkApiKey]);
+
+  useEffect(() => {
+    checkApiKey();
+  }, [checkApiKey]);
+
+  return {
+    maskedKey,
+    hasKey,
+    loading,
+    error,
+    checkApiKey,
+    setApiKey,
   };
 }

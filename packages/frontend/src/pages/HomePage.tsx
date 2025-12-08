@@ -1,12 +1,78 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
-import { RefreshCw, Loader2, AlertCircle, Calendar } from 'lucide-react';
+import { RefreshCw, Loader2, AlertCircle, Calendar, Play } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { BriefingCard } from '../components/BriefingCard';
+import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { useBriefings } from '../hooks/useTauri';
+import type { Briefing } from '../types';
+
+// Backend returns briefings with cards as JSON string
+interface BackendBriefing {
+  id: number;
+  date: string;
+  title: string;
+  cards: string; // JSON string of cards array
+  research_time_ms?: number;
+  model_used?: string;
+  total_tokens?: number;
+}
+
+// Card data within the cards JSON
+interface BriefingCardData {
+  title: string;
+  summary: string;
+  sources?: string[];
+  suggested_next?: string;
+  relevance?: string;
+  topic?: string;
+}
 
 export function HomePage() {
-  const { briefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+  const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+
+  // Parse the cards JSON and flatten into individual briefing cards
+  const briefings = useMemo(() => {
+    const result: Briefing[] = [];
+    for (const raw of rawBriefings as unknown as BackendBriefing[]) {
+      try {
+        const cards: BriefingCardData[] = typeof raw.cards === 'string'
+          ? JSON.parse(raw.cards)
+          : raw.cards || [];
+
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i];
+          result.push({
+            id: `${raw.id}-${i}`,
+            title: card.title || raw.title,
+            summary: card.summary || '',
+            sources: card.sources || [],
+            suggested_next: card.suggested_next,
+            relevance: (card.relevance as 'high' | 'medium' | 'low') || 'medium',
+            created_at: raw.date,
+            topic_id: '',
+            topic_name: card.topic || 'General',
+          });
+        }
+      } catch {
+        // If cards parsing fails, create a single card from the briefing
+        result.push({
+          id: String(raw.id),
+          title: raw.title,
+          summary: 'Unable to parse briefing cards',
+          sources: [],
+          relevance: 'medium',
+          created_at: raw.date,
+          topic_id: '',
+          topic_name: 'General',
+        });
+      }
+    }
+    return result;
+  }, [rawBriefings]);
   const [refreshing, setRefreshing] = useState(false);
+  const [runningResearch, setRunningResearch] = useState(false);
 
   useEffect(() => {
     getTodaysBriefings();
@@ -18,6 +84,18 @@ export function HomePage() {
       await getTodaysBriefings();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleRunResearch = async () => {
+    setRunningResearch(true);
+    try {
+      await invoke('run_research_now');
+      await getTodaysBriefings();
+    } catch (err) {
+      console.error('Research failed:', err);
+    } finally {
+      setRunningResearch(false);
     }
   };
 
@@ -53,16 +131,32 @@ export function HomePage() {
               <p className="text-sm">{formattedDate}</p>
             </div>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing || loading}
-            className="btn btn-secondary flex items-center gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRunResearch}
+              disabled={runningResearch || loading}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              {runningResearch ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              {runningResearch ? 'Running...' : 'Run Research'}
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              className="btn btn-secondary flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
+
+      <ActionableErrorsAlert />
 
       {loading && !refreshing && (
         <div className="flex items-center justify-center py-12">
@@ -99,9 +193,9 @@ export function HomePage() {
             <p className="text-gray-600 dark:text-gray-400 mb-4">
               You don't have any briefings for today. Check your settings to configure topics and enable automatic research.
             </p>
-            <a href="/settings" className="btn btn-primary">
+            <Link to="/settings" className="btn btn-primary">
               Go to Settings
-            </a>
+            </Link>
           </div>
         </div>
       )}

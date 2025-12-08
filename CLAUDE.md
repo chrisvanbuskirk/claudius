@@ -4,17 +4,12 @@ This file provides context for AI assistants (like Claude Code) working on this 
 
 ## Project Overview
 
-Claudius is a macOS desktop application that delivers personalized daily research briefings using the Anthropic Agent SDK. It runs a multi-agent research system that gathers information from configured topics and presents digestible briefing cards.
+Claudius is a macOS desktop application that delivers personalized daily research briefings using Claude. It runs a native Rust research agent that calls the Anthropic API to gather information on configured topics and presents digestible briefing cards. The app is fully self-contained - no external dependencies like Python required for end users.
 
 ## Architecture
 
 ```
 claudius/
-├── agent/                    # Python research agent (Anthropic Agent SDK)
-│   ├── research.py          # Main research logic
-│   ├── briefing.py          # Briefing generation
-│   ├── config.py            # Agent configuration
-│   └── mcp_client.py        # MCP server client
 ├── packages/
 │   ├── frontend/            # React + Vite + Tailwind (Tauri webview)
 │   │   ├── src/
@@ -31,10 +26,14 @@ claudius/
 │   │   └── __tests__/       # Unit tests (75+ tests)
 │   ├── cli/                 # Command-line interface
 │   └── mcp-server/          # MCP server for Claude Desktop integration
-├── src-tauri/               # Rust backend (Tauri 2.0)
+├── src-tauri/               # Rust backend (Tauri 2.0 + Research Agent)
 │   ├── src/
-│   │   ├── main.rs          # Entry point
+│   │   ├── main.rs          # Entry point, app setup
 │   │   ├── commands.rs      # Tauri commands (IPC)
+│   │   ├── research.rs      # Research agent (calls Anthropic API)
+│   │   ├── scheduler.rs     # Cron-based research scheduler
+│   │   ├── notifications.rs # Desktop notifications
+│   │   ├── tray.rs          # System tray integration
 │   │   └── db.rs            # Rust database layer
 │   └── tauri.conf.json      # Tauri configuration
 └── .github/workflows/       # CI/CD workflows
@@ -46,9 +45,20 @@ claudius/
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide icons
 - **Desktop**: Tauri 2.0 (Rust)
-- **Agent**: Python with Anthropic Agent SDK
+- **Research Agent**: Rust (built-in), calls Anthropic API via reqwest
 - **Database**: SQLite via sql.js (browser) and rusqlite (Rust)
-- **Testing**: Vitest, React Testing Library
+- **Testing**: Vitest, React Testing Library, Cargo Test
+
+## Claude Models
+
+**IMPORTANT**: This project uses Claude 4.5 models exclusively. Do NOT use Claude 3.x model IDs.
+
+| Model | Model ID | Use Case |
+|-------|----------|----------|
+| Haiku 4.5 | `claude-haiku-4-5-20241022` | Default for research (fastest, cheapest) |
+| Sonnet 4.5 | `claude-sonnet-4-5-20250929` | Balanced quality/cost |
+| Opus 4.5 | `claude-opus-4-5-20251101` | Highest quality |
+
 - **Build**: npm workspaces monorepo
 
 ## Development Commands
@@ -78,11 +88,11 @@ npm run test:coverage
 npm test -w @claudius/shared
 npm test -w @claudius/frontend
 
+# Run Rust tests
+cd src-tauri && cargo test
+
 # Type check all packages
 npm run build
-
-# Python agent tests
-cd agent && pytest
 ```
 
 ## Key Files
@@ -92,11 +102,12 @@ cd agent && pytest
 | `src-tauri/tauri.conf.json` | Tauri app configuration, permissions |
 | `src-tauri/src/main.rs` | Rust entry point, command registration |
 | `src-tauri/src/commands.rs` | IPC commands called from frontend |
+| `src-tauri/src/research.rs` | Research agent (Anthropic API client) |
+| `src-tauri/src/scheduler.rs` | Cron-based research scheduler |
 | `packages/frontend/src/App.tsx` | React router, main layout |
 | `packages/frontend/src/hooks/useTauri.ts` | Tauri IPC bridge with mock data fallback |
 | `packages/shared/src/db/` | Database operations (briefings, feedback) |
 | `packages/shared/src/db/schema.ts` | SQLite schema definition |
-| `agent/research.py` | Main research agent logic |
 
 ## Environment Variables
 
@@ -144,7 +155,6 @@ npm test -w @claudius/shared # Shared package only
 - **TypeScript**: Strict mode, prefer explicit types
 - **React**: Functional components with hooks, avoid class components
 - **Rust**: Follow rustfmt conventions (`cargo fmt`)
-- **Python**: PEP 8, use type hints, run `black` for formatting
 
 ## Git Workflow
 
@@ -219,7 +229,7 @@ GitHub Actions runs on push to `main`/`develop` and on PRs:
 
 1. **Lint & Type Check** - TypeScript compilation
 2. **Unit Tests** - Vitest for all packages (75+ tests)
-3. **Python Tests** - pytest for agent
+3. **Rust Tests** - cargo test for research agent
 4. **Build Tauri** - macOS (universal), Windows, Ubuntu
 
 Release workflow triggers on version tags (`v*`) and creates draft releases with installers.

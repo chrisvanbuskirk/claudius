@@ -1,0 +1,59 @@
+{
+  "servers": [
+    {
+      "id": "brave-search-001",
+      "name": "Brave Search",
+      "enabled": false,
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+        "env": {
+          "BRAVE_API_KEY": "YOUR_BRAVE_API_KEY"
+        }
+      }
+    },
+    {
+      "id": "perplexity-001",
+      "name": "Perplexity",
+      "enabled": false,
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@perplexity-ai/mcp-server"],
+        "env": {
+          "PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY",
+          "PERPLEXITY_TIMEOUT_MS": "600000"
+        }
+      }
+    },
+    {
+      "id": "github-001",
+      "name": "GitHub",
+      "enabled": false,
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {
+          "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
+        }
+      }
+    },
+    {
+      "id": "fetch-001",
+      "name": "Fetch",
+      "enabled": false,
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-fetch"]
+      }
+    },
+    {
+      "id": "memory-001",
+      "name": "Memory",
+      "enabled": false,
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"]
+      }
+    }
+  ]
+}

@@ -35,6 +35,7 @@ export interface ResearchSettings {
   research_depth: 'shallow' | 'medium' | 'deep';
   max_sources_per_topic: number;
   enable_notifications: boolean;
+  notification_sound: boolean;
 }
 
 export interface UserFeedback {
