@@ -1040,7 +1040,7 @@ Return the JSON response now:"#,
 
         let request = AnthropicRequest {
             model: self.model.clone(),
-            max_tokens: 4096,
+            max_tokens: 8192, // Increased from 4096 to accommodate detailed_content (150+ words per card)
             messages: vec![Message {
                 role: "user".to_string(),
                 content: MessageContent::Text(prompt),
@@ -1084,11 +1084,37 @@ fn parse_briefing_response(response: &str) -> Result<Vec<BriefingCard>, String> 
         response
     };
 
-    // Parse JSON
-    let briefing_response: BriefingResponse = serde_json::from_str(json_str)
-        .map_err(|e| format!("Failed to parse briefing JSON: {}. Response: {}", e, json_str))?;
+    // Parse JSON - if it fails, try to provide helpful error message
+    match serde_json::from_str::<BriefingResponse>(json_str) {
+        Ok(briefing_response) => Ok(briefing_response.cards),
+        Err(e) => {
+            // Check if response looks truncated (EOF errors)
+            let error_msg = e.to_string();
+            if error_msg.contains("EOF") {
+                // Try to fix truncated JSON by closing the array and object
+                let fixed_attempt = format!("{}\n]\n}}", json_str.trim_end_matches(','));
+                if let Ok(briefing_response) = serde_json::from_str::<BriefingResponse>(&fixed_attempt) {
+                    warn!("Recovered {} cards from truncated response", briefing_response.cards.len());
+                    return Ok(briefing_response.cards);
+                }
 
-    Ok(briefing_response.cards)
+                Err(format!(
+                    "Response was truncated (likely hit max_tokens limit). Increase max_tokens in synthesis call. \
+                    Error: {}. Response length: {} chars. Last 200 chars: ...{}",
+                    error_msg,
+                    json_str.len(),
+                    &json_str[json_str.len().saturating_sub(200)..]
+                ))
+            } else {
+                Err(format!(
+                    "Failed to parse briefing JSON: {}. Response length: {} chars. First 500 chars: {}...",
+                    error_msg,
+                    json_str.len(),
+                    &json_str[..json_str.len().min(500)]
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

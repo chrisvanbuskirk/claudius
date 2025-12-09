@@ -939,13 +939,12 @@ pub fn get_todays_briefings() -> Result<Vec<Briefing>, String> {
     // Use date prefix to match both "2025-12-08" and "2025-12-08T10:30:00" formats
     let today_prefix = format!("{}%", Local::now().format("%Y-%m-%d"));
 
-    // Only return the most recent briefing for today
+    // Return ALL briefings for today (not just the most recent)
     let mut stmt = conn.prepare(
         "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
          WHERE date LIKE ?1
-         ORDER BY id DESC
-         LIMIT 1"
+         ORDER BY id DESC"
     ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     let briefings = stmt.query_map([&today_prefix], |row| {

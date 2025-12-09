@@ -114,13 +114,23 @@ export function HomePage() {
     setResearchError(null); // Clear any previous errors
 
     try {
-      await invoke('run_research_now');
-      await getTodaysBriefings();
+      // Add 6-minute timeout (slightly longer than backend timeout)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Research timeout - please try again')), 6 * 60 * 1000)
+      );
+
+      await Promise.race([
+        invoke('run_research_now'),
+        timeoutPromise
+      ]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('Research failed:', errorMessage);
       setResearchError(`Research failed: ${errorMessage}`);
     } finally {
+      // ALWAYS refresh briefings, even if research failed/timed out
+      // This shows any cards that were successfully generated before failure
+      await getTodaysBriefings();
       setRunningResearch(false);
     }
   };
