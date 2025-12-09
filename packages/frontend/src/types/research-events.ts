@@ -77,6 +77,26 @@ export interface CompletedEvent extends ResearchEvent {
   error?: string;
 }
 
+// Event: Research cancelled by user
+export interface CancelledEvent extends ResearchEvent {
+  reason: string;
+  phase: string;
+  topics_completed: number;
+  total_topics: number;
+}
+
+// Event: Research state reset
+export interface ResetEvent extends ResearchEvent {
+  reason: string;
+}
+
+// Event: Heartbeat during long operations
+export interface HeartbeatEvent extends ResearchEvent {
+  phase: string;
+  topic_index?: number;
+  message: string;
+}
+
 // Union type for all events
 export type ResearchProgressEvent =
   | { type: 'research:started'; data: ResearchStartedEvent }
@@ -89,4 +109,7 @@ export type ResearchProgressEvent =
   | { type: 'research:synthesis_started'; data: SynthesisStartedEvent }
   | { type: 'research:synthesis_completed'; data: SynthesisCompletedEvent }
   | { type: 'research:saving'; data: SavingEvent }
-  | { type: 'research:completed'; data: CompletedEvent };
+  | { type: 'research:completed'; data: CompletedEvent }
+  | { type: 'research:cancelled'; data: CancelledEvent }
+  | { type: 'research:reset'; data: ResetEvent }
+  | { type: 'research:heartbeat'; data: HeartbeatEvent };

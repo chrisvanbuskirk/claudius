@@ -8,6 +8,8 @@ import type {
   SynthesisCompletedEvent,
   SavingEvent,
   CompletedEvent,
+  CancelledEvent,
+  ResetEvent,
 } from '../types/research-events';
 
 export interface ResearchProgressState {
@@ -177,6 +179,38 @@ export function useResearchProgress() {
           totalCards: event.payload.total_cards,
           error: event.payload.error,
         }));
+      })
+    );
+
+    // Cancelled - when user cancels research
+    unlistenPromises.push(
+      listen<CancelledEvent>('research:cancelled', (event) => {
+        if (!mounted) return;
+        console.log('Research cancelled event:', event.payload);
+
+        // Clear safety timeout
+        if (safetyTimeoutId) clearTimeout(safetyTimeoutId);
+
+        setProgress((prev) => ({
+          ...prev,
+          isRunning: false,
+          currentPhase: 'complete',
+          error: `Research cancelled: ${event.payload.reason}`,
+        }));
+      })
+    );
+
+    // Reset - when state is force-reset
+    unlistenPromises.push(
+      listen<ResetEvent>('research:reset', (event) => {
+        if (!mounted) return;
+        console.log('Research reset event:', event.payload);
+
+        // Clear safety timeout
+        if (safetyTimeoutId) clearTimeout(safetyTimeoutId);
+
+        // Reset to initial state
+        setProgress(initialState);
       })
     );
 

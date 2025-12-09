@@ -1,21 +1,38 @@
 import { motion } from 'framer-motion';
-import { useEffect } from 'react';
-import { Loader2, CheckCircle2, XCircle, Database, Brain } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, CheckCircle2, XCircle, Database, Brain, StopCircle } from 'lucide-react';
 import type { ResearchProgressState } from '../hooks/useResearchProgress';
+import { useResearchReset } from '../hooks/useResearchReset';
 
 interface ResearchProgressCardProps {
   progress: ResearchProgressState;
 }
 
 export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
+  const { cancelResearch } = useResearchReset();
+  const [isCancelling, setIsCancelling] = useState(false);
+
   // Debug logging for synthesis phase
   useEffect(() => {
     if (progress.currentPhase === 'synthesizing') {
-      console.log('🎨 ResearchProgressCard: Rendering SYNTHESIS phase 🎨');
+      console.log('ResearchProgressCard: Rendering SYNTHESIS phase');
       console.log('isRunning:', progress.isRunning);
       console.log('currentPhase:', progress.currentPhase);
     }
   }, [progress.currentPhase, progress.isRunning]);
+
+  // Handle cancel button click
+  const handleCancel = async () => {
+    if (isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await cancelResearch();
+    } finally {
+      // Reset cancelling state after a short delay
+      setTimeout(() => setIsCancelling(false), 1000);
+    }
+  };
+
 
   if (!progress.isRunning && progress.currentPhase !== 'complete') {
     return null;
@@ -80,7 +97,18 @@ export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
           )}
         </div>
         {progress.isRunning && (
-          <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+            <button
+              onClick={handleCancel}
+              disabled={isCancelling}
+              className="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white rounded-md transition-colors flex items-center gap-1.5"
+              title="Cancel research"
+            >
+              <StopCircle className="w-4 h-4" />
+              {isCancelling ? 'Cancelling...' : 'Cancel'}
+            </button>
+          </div>
         )}
       </div>
 
