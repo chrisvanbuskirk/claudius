@@ -446,10 +446,12 @@ async fn execute_fetch_webpage(client: &Client, url: &str) -> Result<String, Str
     // Extract text content from HTML (simple extraction)
     let text = extract_text_from_html(&html);
 
-    // Truncate if too long
-    let max_len = 8000;
-    if text.len() > max_len {
-        Ok(format!("{}...\n\n[Content truncated, {} total characters]", &text[..max_len], text.len()))
+    // Truncate if too long (use character count, not byte index to avoid UTF-8 panic)
+    let max_chars = 8000;
+    let char_count = text.chars().count();
+    if char_count > max_chars {
+        let truncated: String = text.chars().take(max_chars).collect();
+        Ok(format!("{}...\n\n[Content truncated, {} total characters]", truncated, char_count))
     } else {
         Ok(text)
     }
@@ -771,6 +773,7 @@ Use the available tools if they would help gather current information. Then prov
                 system: Some(system_prompt.to_string()),
             };
 
+            info!("Calling Claude API (iteration {}/{}) for topic: {}", iterations, MAX_TOOL_ITERATIONS, topic);
             let api_start = Instant::now();
             let response = match self.send_request(&request).await {
                 Ok(r) => r,
@@ -784,6 +787,9 @@ Use the available tools if they would help gather current information. Then prov
             let tokens = response.usage.input_tokens + response.usage.output_tokens;
             total_tokens += tokens;
 
+            info!("Claude API responded in {}ms ({} tokens, stop_reason: {:?})",
+                api_duration, tokens, response.stop_reason);
+
             // Log successful API request
             let _ = ResearchLogger::log_api_request(topic, tokens as i64, api_duration);
 
@@ -793,6 +799,7 @@ Use the available tools if they would help gather current information. Then prov
                 .collect();
 
             if tool_uses.is_empty() || response.stop_reason.as_deref() == Some("end_turn") {
+                info!("No more tool calls requested - research complete for topic: {}", topic);
                 // No more tool calls, extract the text response
                 let text_content: String = response.content.iter()
                     .filter_map(|c| {
@@ -831,6 +838,7 @@ Use the available tools if they would help gather current information. Then prov
             });
 
             // Execute tools and build results
+            info!("Claude requested {} tool call(s)", tool_uses.len());
             let mut tool_results: Vec<ContentBlock> = Vec::new();
             let empty_input = json!({});
             for tool_use in tool_uses {
@@ -883,6 +891,8 @@ Use the available tools if they would help gather current information. Then prov
 
                 let (content, is_error) = match result {
                     Ok(output) => {
+                        info!("Tool {} completed in {}ms (output: {} chars)",
+                            tool_name, tool_duration, output.len());
                         // Log successful tool call - use MCP logging if it's an MCP tool
                         if is_mcp_tool {
                             let server_name = mcp_server_name.as_deref().unwrap_or("unknown");
@@ -1049,7 +1059,10 @@ Return the JSON response now:"#,
             system: None,
         };
 
+        info!("Calling Claude API for synthesis (research content: {} chars)", research_content.len());
+        let synthesis_start = Instant::now();
         let response = self.send_request(&request).await?;
+        let synthesis_duration = synthesis_start.elapsed().as_millis();
 
         let content = response.content.iter()
             .filter_map(|c| c.text.clone())
@@ -1058,9 +1071,13 @@ Return the JSON response now:"#,
 
         let tokens = response.usage.input_tokens + response.usage.output_tokens;
 
+        info!("Synthesis API responded in {}ms ({} tokens)", synthesis_duration, tokens);
+
         // Parse the JSON response
         let cards = parse_briefing_response(&content)
             .map_err(|e| ResearchError::new(ErrorCode::ParseError, e))?;
+
+        info!("Successfully generated {} briefing cards from synthesis", cards.len());
 
         Ok((cards, tokens))
     }
