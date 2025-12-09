@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Maximum number of tool use iterations to prevent infinite loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
@@ -1016,7 +1016,8 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 let tool_input = tool_use.input.as_ref().unwrap_or(&empty_input);
                 let input_str = serde_json::to_string(tool_input).unwrap_or_default();
 
-                info!("Executing tool: {} with input: {}", tool_name, tool_input);
+                info!("Executing tool: {}", tool_name);
+                debug!("Tool input: {}", tool_input);
 
                 let tool_start = Instant::now();
 
