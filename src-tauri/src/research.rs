@@ -5,6 +5,7 @@
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};
+use chrono::Datelike;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -739,46 +740,70 @@ impl ResearchAgent {
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
-        // Get current date for research context
-        let current_date = chrono::Local::now().format("%B %d, %Y").to_string();
+        // Get current date components for research context
+        let now = chrono::Local::now();
+        let current_date = now.format("%B %d, %Y").to_string();
+        let current_month = now.format("%B").to_string();
+        let current_year = now.format("%Y").to_string();
+        let prev_year = (now.year() - 1).to_string();
+        let month_year = now.format("%B %Y").to_string();
 
         let system_prompt = format!(
             r#"You are a research assistant gathering information on topics of interest.
 
-IMPORTANT: Today's date is {}. You must focus on finding information from December 2025 and late 2025. Any information from 2024 or earlier is outdated and should be avoided unless it provides essential background context.
+IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
 
 You have access to the following tools to fetch real-time data:
 {}
 
 CRITICAL SEARCH TOOL USAGE:
-- If you have access to brave_search or perplexity search tools, USE THEM FIRST to find December 2025 articles and information
-- Use specific search queries like "[topic] December 2025" or "[topic] 2025 latest news"
-- Search tools will give you current URLs and content - these are your primary source for December 2025 information
+- If you have access to brave_search or perplexity search tools, USE THEM FIRST to find {} articles and information
+- Use specific search queries like "[topic] {}" or "[topic] {} latest news"
+- Search tools will give you current URLs and content - these are your primary source for {} information
 - After getting search results, use fetch_webpage to read the most promising URLs in full
-- Use get_github_activity for open source projects to see recent commits, PRs, and releases from December 2025
+- Use get_github_activity for open source projects to see recent commits, PRs, and releases from {}
 
 When using fetch_webpage directly (without search):
-- Target URLs likely to have December 2025 content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
-- Prioritize URLs with "/2025/" or "december-2025" in the path
+- Target URLs likely to have {} content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
+- Prioritize URLs with "/{}" or "{}" in the path
 
-After gathering current information, provide a comprehensive research summary based on December 2025 data."#,
+After gathering current information, provide a comprehensive research summary based on {} data."#,
             current_date,
-            tool_descriptions.join("\n")
+            month_year,
+            current_year,
+            prev_year,
+            tool_descriptions.join("\n"),
+            month_year,
+            month_year,
+            current_year,
+            month_year,
+            month_year,
+            month_year,
+            current_year.to_lowercase(),
+            month_year.to_lowercase().replace(" ", "-"),
+            month_year
         );
 
         let user_prompt = format!(
             r#"Research the following topic and provide:
-1. Key recent developments from December 2025 (ideally within the last 24-48 hours, or at minimum from late 2025)
+1. Key recent developments from {} (ideally within the last 24-48 hours, or at minimum from late {})
 2. Why this might be relevant to someone interested in this topic
 3. Actionable insights or next steps
-4. Credible sources with dates (MUST be from 2025, preferably December 2025)
+4. Credible sources with dates (MUST be from {}, preferably {})
 
 Topic: {}
 
-CRITICAL: Use the available tools aggressively to fetch current December 2025 information. Do NOT rely solely on your training data, as it may be outdated. If you can't find December 2025 information after trying multiple sources, explicitly state this limitation.
+CRITICAL: Use the available tools aggressively to fetch current {} information. Do NOT rely solely on your training data, as it may be outdated. If you can't find {} information after trying multiple sources, explicitly state this limitation.
 
-Provide a concise but informative research summary (2-3 paragraphs) based on current December 2025 data."#,
-            topic
+Provide a concise but informative research summary (2-3 paragraphs) based on current {} data."#,
+            month_year,
+            current_year,
+            current_year,
+            month_year,
+            topic,
+            month_year,
+            month_year,
+            month_year
         );
         let mut messages = vec![Message {
             role: "user".to_string(),
