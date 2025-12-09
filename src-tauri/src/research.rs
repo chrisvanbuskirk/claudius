@@ -5,7 +5,6 @@
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};
-use crate::research_state;
 use chrono::Datelike;
 use regex::Regex;
 use reqwest::Client;
@@ -737,7 +736,7 @@ impl ResearchAgent {
                 });
             }
 
-            match self.research_topic_with_tools(topic).await {
+            match self.research_topic_with_tools(topic, app_handle.as_ref(), i).await {
                 Ok((content, tokens)) => {
                     research_content.push_str(&format!("\n## Topic {}: {}\n{}\n", i + 1, topic, content));
                     total_tokens += tokens;
@@ -818,7 +817,12 @@ impl ResearchAgent {
     }
 
     /// Research a single topic using Claude with tool support.
-    async fn research_topic_with_tools(&mut self, topic: &str) -> Result<(String, u32), String> {
+    async fn research_topic_with_tools(
+        &mut self,
+        topic: &str,
+        app_handle: Option<&tauri::AppHandle>,
+        topic_index: usize,
+    ) -> Result<(String, u32), String> {
         // Build dynamic system prompt based on available tools
         let tools = self.get_all_tools();
         let tool_descriptions: Vec<String> = tools.iter()
@@ -897,11 +901,32 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
         let mut total_tokens: u32 = 0;
         let mut iterations = 0;
+        let mut last_heartbeat = Instant::now();
+        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
         // Agentic loop - keep going until Claude stops calling tools
         loop {
             // Check for cancellation at each iteration
             self.check_cancellation()?;
+
+            // Emit heartbeat if enough time has passed
+            if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
+                if let Some(app) = app_handle {
+                    let _ = app.emit(
+                        "research:heartbeat",
+                        HeartbeatEvent {
+                            timestamp: get_timestamp(),
+                            phase: "researching".to_string(),
+                            topic_index: Some(topic_index),
+                            message: format!(
+                                "Still researching '{}' (iteration {})",
+                                topic, iterations
+                            ),
+                        },
+                    );
+                }
+                last_heartbeat = Instant::now();
+            }
 
             iterations += 1;
             if iterations > MAX_TOOL_ITERATIONS {

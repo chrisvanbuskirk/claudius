@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 /// Counter for generating unique JSON-RPC request IDs.
@@ -292,6 +293,8 @@ impl McpClient {
             }
         });
 
+        let call_start = std::time::Instant::now();
+
         let stdin = conn.child.stdin.as_mut()
             .ok_or_else(|| "Server stdin not available".to_string())?;
         Self::send_request(stdin, &request)?;
@@ -302,6 +305,19 @@ impl McpClient {
 
         let response = Self::read_response(&mut reader)?;
         conn.child.stdout = Some(reader.into_inner());
+
+        let call_duration = call_start.elapsed();
+        if call_duration > Duration::from_secs(30) {
+            warn!(
+                "MCP tool '{}' on server '{}' took {:.1}s (slow)",
+                actual_tool_name, conn.server_name, call_duration.as_secs_f64()
+            );
+        } else {
+            debug!(
+                "MCP tool '{}' completed in {:.1}s",
+                actual_tool_name, call_duration.as_secs_f64()
+            );
+        }
 
         // Check for error
         if let Some(error) = response.get("error") {
