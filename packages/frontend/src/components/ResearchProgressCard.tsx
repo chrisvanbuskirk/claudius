@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
 import { Loader2, CheckCircle2, XCircle, Database, Brain } from 'lucide-react';
 import type { ResearchProgressState } from '../hooks/useResearchProgress';
 
@@ -7,6 +8,15 @@ interface ResearchProgressCardProps {
 }
 
 export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
+  // Debug logging for synthesis phase
+  useEffect(() => {
+    if (progress.currentPhase === 'synthesizing') {
+      console.log('🎨 ResearchProgressCard: Rendering SYNTHESIS phase 🎨');
+      console.log('isRunning:', progress.isRunning);
+      console.log('currentPhase:', progress.currentPhase);
+    }
+  }, [progress.currentPhase, progress.isRunning]);
+
   if (!progress.isRunning && progress.currentPhase !== 'complete') {
     return null;
   }
@@ -17,6 +27,8 @@ export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
         return 'Starting research...';
       case 'researching':
         return `Researching: ${progress.currentTopicName}`;
+      case 'synthesizing':
+        return 'Synthesizing research into briefing cards...';
       case 'saving':
         return 'Saving research results to database...';
       case 'complete':
@@ -28,6 +40,8 @@ export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
 
   const getPhaseIcon = () => {
     switch (progress.currentPhase) {
+      case 'synthesizing':
+        return <Brain className="w-5 h-5 animate-pulse text-purple-500" />;
       case 'saving':
         return <Database className="w-5 h-5 animate-pulse text-primary-500" />;
       case 'complete':

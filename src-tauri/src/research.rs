@@ -125,6 +125,21 @@ pub struct CompletedEvent {
     error: Option<String>,
 }
 
+/// Event emitted when synthesis starts
+#[derive(Serialize, Clone)]
+pub struct SynthesisStartedEvent {
+    timestamp: String,
+    research_content_length: usize,
+}
+
+/// Event emitted when synthesis completes
+#[derive(Serialize, Clone)]
+pub struct SynthesisCompletedEvent {
+    timestamp: String,
+    cards_generated: usize,
+    duration_ms: u128,
+}
+
 /// Helper to get current timestamp in RFC3339 format
 fn get_timestamp() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -676,7 +691,7 @@ impl ResearchAgent {
 
         // Step 2: Synthesize into briefing cards
         info!("Synthesizing research into briefing cards");
-        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content).await
+        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content, app_handle.as_ref()).await
             .map_err(|e| {
                 let _ = ResearchLogger::log_api_error("synthesis", &e);
                 e.message
@@ -1001,6 +1016,7 @@ Use the available tools if they would help gather current information. Then prov
     async fn synthesize_briefing(
         &self,
         research_content: &str,
+        app_handle: Option<&tauri::AppHandle>,
     ) -> Result<(Vec<BriefingCard>, u32), ResearchError> {
         let prompt = format!(
             r#"You are a research assistant creating a personalized daily briefing.
@@ -1059,6 +1075,14 @@ Return the JSON response now:"#,
             system: None,
         };
 
+        // Emit synthesis:started event
+        if let Some(app) = app_handle {
+            let _ = app.emit("research:synthesis_started", SynthesisStartedEvent {
+                timestamp: get_timestamp(),
+                research_content_length: research_content.len(),
+            });
+        }
+
         info!("Calling Claude API for synthesis (research content: {} chars)", research_content.len());
         let synthesis_start = Instant::now();
         let response = self.send_request(&request).await?;
@@ -1078,6 +1102,15 @@ Return the JSON response now:"#,
             .map_err(|e| ResearchError::new(ErrorCode::ParseError, e))?;
 
         info!("Successfully generated {} briefing cards from synthesis", cards.len());
+
+        // Emit synthesis:completed event
+        if let Some(app) = app_handle {
+            let _ = app.emit("research:synthesis_completed", SynthesisCompletedEvent {
+                timestamp: get_timestamp(),
+                cards_generated: cards.len(),
+                duration_ms: synthesis_duration,
+            });
+        }
 
         Ok((cards, tokens))
     }
@@ -1140,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_parse_briefing_response() {
-        let response = r#"{"cards": [{"title": "Test", "summary": "Test summary", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
+        let response = r#"{"cards": [{"title": "Test", "summary": "Test summary", "detailed_content": "Detailed test content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].title, "Test");
@@ -1149,7 +1182,7 @@ mod tests {
     #[test]
     fn test_parse_briefing_response_with_markdown() {
         let response = r#"```json
-{"cards": [{"title": "Test", "summary": "Test summary", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}
+{"cards": [{"title": "Test", "summary": "Test summary", "detailed_content": "Detailed test content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}
 ```"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 1);
@@ -1158,9 +1191,9 @@ mod tests {
     #[test]
     fn test_parse_briefing_response_multiple_cards() {
         let response = r#"{"cards": [
-            {"title": "Card 1", "summary": "Summary 1", "sources": ["https://example.com"], "suggested_next": "Read more", "relevance": "high", "topic": "Topic A"},
-            {"title": "Card 2", "summary": "Summary 2", "sources": [], "suggested_next": null, "relevance": "medium", "topic": "Topic B"},
-            {"title": "Card 3", "summary": "Summary 3", "sources": ["https://source1.com", "https://source2.com"], "suggested_next": "Follow up", "relevance": "low", "topic": "Topic A"}
+            {"title": "Card 1", "summary": "Summary 1", "detailed_content": "Detailed content 1", "sources": ["https://example.com"], "suggested_next": "Read more", "relevance": "high", "topic": "Topic A"},
+            {"title": "Card 2", "summary": "Summary 2", "detailed_content": "Detailed content 2", "sources": [], "suggested_next": null, "relevance": "medium", "topic": "Topic B"},
+            {"title": "Card 3", "summary": "Summary 3", "detailed_content": "Detailed content 3", "sources": ["https://source1.com", "https://source2.com"], "suggested_next": "Follow up", "relevance": "low", "topic": "Topic A"}
         ]}"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 3);
@@ -1175,7 +1208,7 @@ mod tests {
     fn test_parse_briefing_response_with_markdown_code_block() {
         let response = r#"Here is the briefing:
 ```json
-{"cards": [{"title": "AI Developments", "summary": "Major advances in AI", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Artificial Intelligence"}]}
+{"cards": [{"title": "AI Developments", "summary": "Major advances in AI", "detailed_content": "Detailed AI content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Artificial Intelligence"}]}
 ```
 That's the summary!"#;
         let cards = parse_briefing_response(response).unwrap();
@@ -1207,6 +1240,7 @@ That's the summary!"#;
             suggested_next: Some("Follow up action".to_string()),
             relevance: "high".to_string(),
             topic: "Test Topic".to_string(),
+            detailed_content: "Detailed test content".to_string(),
         };
 
         let json = serde_json::to_string(&card).unwrap();
@@ -1233,6 +1267,7 @@ That's the summary!"#;
                     suggested_next: None,
                     relevance: "high".to_string(),
                     topic: "Topic 1".to_string(),
+                    detailed_content: "Detailed content 1".to_string(),
                 }
             ],
             research_time_ms: 1500,
@@ -1267,7 +1302,7 @@ That's the summary!"#;
     #[tokio::test]
     async fn test_run_research_empty_topics() {
         let mut agent = ResearchAgent::new("test-api-key".to_string(), None);
-        let result = agent.run_research(vec![]).await;
+        let result = agent.run_research(vec![], None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));
     }

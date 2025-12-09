@@ -57,6 +57,17 @@ export interface SavingEvent extends ResearchEvent {
   total_cards: number;
 }
 
+// Event: Synthesis started
+export interface SynthesisStartedEvent extends ResearchEvent {
+  research_content_length: number;
+}
+
+// Event: Synthesis completed
+export interface SynthesisCompletedEvent extends ResearchEvent {
+  cards_generated: number;
+  duration_ms: number;
+}
+
 // Event: Research session completed
 export interface CompletedEvent extends ResearchEvent {
   total_topics: number;
@@ -75,5 +86,7 @@ export type ResearchProgressEvent =
   | { type: 'research:thinking'; data: ThinkingEvent }
   | { type: 'research:tool_executed'; data: ToolExecutedEvent }
   | { type: 'research:topic_completed'; data: TopicCompletedEvent }
+  | { type: 'research:synthesis_started'; data: SynthesisStartedEvent }
+  | { type: 'research:synthesis_completed'; data: SynthesisCompletedEvent }
   | { type: 'research:saving'; data: SavingEvent }
   | { type: 'research:completed'; data: CompletedEvent };

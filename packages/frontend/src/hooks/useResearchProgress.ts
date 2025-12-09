@@ -4,6 +4,8 @@ import type {
   ResearchStartedEvent,
   TopicStartedEvent,
   TopicCompletedEvent,
+  SynthesisStartedEvent,
+  SynthesisCompletedEvent,
   SavingEvent,
   CompletedEvent,
 } from '../types/research-events';
@@ -13,7 +15,7 @@ export interface ResearchProgressState {
   totalTopics: number;
   currentTopicIndex: number;
   currentTopicName: string;
-  currentPhase: string; // "starting", "researching", "saving", "complete"
+  currentPhase: string; // "starting", "researching", "synthesizing", "saving", "complete"
   topicsCompleted: {
     topicName: string;
     cardsGenerated: number;
@@ -120,6 +122,29 @@ export function useResearchProgress() {
             ],
           };
         });
+      })
+    );
+
+    // Synthesis started
+    unlistenPromises.push(
+      listen<SynthesisStartedEvent>('research:synthesis_started', (event) => {
+        if (!mounted) return;
+        console.log('🧠 SYNTHESIS STARTED 🧠', event.payload);
+        console.log('Phase changing to: synthesizing');
+        setProgress((prev) => ({
+          ...prev,
+          currentPhase: 'synthesizing',
+        }));
+      })
+    );
+
+    // Synthesis completed
+    unlistenPromises.push(
+      listen<SynthesisCompletedEvent>('research:synthesis_completed', (event) => {
+        if (!mounted) return;
+        console.log('✅ SYNTHESIS COMPLETED ✅', event.payload);
+        console.log(`Generated ${event.payload.cards_generated} cards in ${event.payload.duration_ms}ms`);
+        // Keep phase as 'synthesizing' until saving starts
       })
     );
 
