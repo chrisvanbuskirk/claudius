@@ -483,6 +483,16 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         result.research_time_ms
     );
 
+    // Clear research state
+    research_state::set_stopped();
+
+    // Emit research:completed event after successful save
+    let _ = app.emit("research:completed", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "total_cards": result.cards.len(),
+        "duration_ms": result.research_time_ms,
+    }));
+
     // Send success notification
     if settings.enable_notifications {
         let _ = notify_research_complete(&app, result.cards.len(), settings.notification_sound);

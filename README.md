@@ -225,35 +225,31 @@ npm run build
 
 ## CLI Commands
 
+> **Note:** The CLI is under development and not yet functional. Use the desktop app for all features.
+
 ```bash
-# Interest management
-claudius interests add <topic>
+# Coming soon...
 claudius interests list
-claudius interests remove <topic>
-
-# Research
 claudius research --now
-claudius research --now --topic "Swift 6" --depth deep
-
-# Briefings
 claudius briefings list
-claudius briefings search "Swift"
-claudius briefings export <id> --format markdown
-
-# MCP Servers
-claudius mcp list
-claudius mcp add <name>
-claudius mcp enable <name>
-
-# Configuration
-claudius config show
-claudius config init
-claudius config set research.schedule "0 6 * * *"
 ```
 
 ## Claude Desktop Integration
 
-Claudius includes an MCP server that lets Claude Desktop access your briefings. Add it to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+> **Note:** This feature requires cloning the repo and building from source. It is not available with the standalone app download.
+
+Claudius includes an MCP server that lets Claude Desktop access your briefings.
+
+**Setup (requires Node.js):**
+
+1. Clone and build the repo:
+```bash
+git clone https://github.com/chrisvanbuskirk/claudius.git
+cd claudius
+npm install && npm run build
+```
+
+2. Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
@@ -283,14 +279,13 @@ Then ask Claude: "What did Claudius research today?" or "Search my briefings for
 
 | Component | Technology |
 |-----------|------------|
-| CLI | TypeScript, Commander.js |
-| Frontend | React 18, Vite, Tailwind CSS |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
 | Desktop | Tauri 2.0, Rust |
-| Database | SQLite (sql.js, rusqlite) |
-| Research Agent | Rust, Anthropic API (tool_use) |
+| Database | SQLite (rusqlite) |
+| Research Agent | Rust, Anthropic API (tool_use), reqwest |
 | MCP Client | Rust, JSON-RPC 2.0 over stdio |
 | MCP Server | TypeScript, @modelcontextprotocol/sdk |
-| Testing | Vitest, React Testing Library, Cargo Test |
+| Testing | Vitest, Cargo Test |
 | CI/CD | GitHub Actions |
 
 ## Research Agent Architecture
@@ -359,13 +354,9 @@ You can extend the agent's capabilities by adding MCP servers in Settings. When 
 4. Presents all tools (built-in + MCP) to Claude
 5. Routes Claude's tool calls to the appropriate handler
 
-A sample configuration is provided in [`mcp-servers.example.json`](mcp-servers.example.json). Copy it to your config directory:
+MCP servers are configured via the Settings page in the desktop app. A sample configuration is also provided in [`mcp-servers.example.json`](mcp-servers.example.json) for reference.
 
-```bash
-cp mcp-servers.example.json ~/.claudius/mcp-servers.json
-```
-
-**Pre-configured servers (disabled by default):**
+**Recommended MCP servers:**
 
 | Server | Package | API Key Required |
 |--------|---------|------------------|
@@ -373,13 +364,12 @@ cp mcp-servers.example.json ~/.claudius/mcp-servers.json
 | [Perplexity](https://docs.perplexity.ai/guides/mcp-server) | `@perplexity-ai/mcp-server` | Yes - `PERPLEXITY_API_KEY` |
 | [GitHub](https://github.com/modelcontextprotocol/servers) | `@modelcontextprotocol/server-github` | Yes - `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | [Fetch](https://www.npmjs.com/package/@modelcontextprotocol/server-fetch) | `@modelcontextprotocol/server-fetch` | No |
-| [Memory](https://www.npmjs.com/package/@modelcontextprotocol/server-memory) | `@modelcontextprotocol/server-memory` | No |
 
-**To enable a server:**
-1. Edit `~/.claudius/mcp-servers.json`
-2. Add your API key(s) to the `env` section
-3. Set `"enabled": true`
-4. Restart Claudius or run research
+**To add an MCP server:**
+1. Open Claudius Settings → MCP Servers
+2. Click "Add Server" and configure the command, args, and environment variables
+3. Enable the server and save
+4. Run research to use the new tools
 
 ## Contributing
 
