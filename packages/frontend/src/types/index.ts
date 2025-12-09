@@ -8,7 +8,7 @@ export interface Briefing {
   created_at: string;
   topic_id: string;
   topic_name: string;
-  content?: string;
+  content?: string; // Legacy field
   metadata?: Record<string, unknown>;
 }
 

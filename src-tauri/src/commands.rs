@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use chrono::{Local, Utc};
 use uuid::Uuid;
+use tauri::Emitter;
 use crate::db;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -439,7 +440,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
     // Create research agent and run research
     let mut agent = ResearchAgent::new(api_key, Some(settings.model));
-    let result = match agent.run_research(topics).await {
+    let result = match agent.run_research(topics, Some(app.clone())).await {
         Ok(r) => r,
         Err(e) => {
             if settings.enable_notifications {
@@ -448,6 +449,12 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
             return Err(e);
         }
     };
+
+    // Emit research:saving event
+    let _ = app.emit("research:saving", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "total_cards": result.cards.len(),
+    }));
 
     // Save to database
     let cards_json = serde_json::to_string(&result.cards)
@@ -531,7 +538,7 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
 
     // Create research agent and run research
     let mut agent = ResearchAgent::new(api_key, Some(settings.model));
-    let result = agent.run_research(topics).await?;
+    let result = agent.run_research(topics, None).await?;
 
     // Save to database
     let cards_json = serde_json::to_string(&result.cards)
@@ -725,6 +732,29 @@ pub fn remove_mcp_server(id: String) -> Result<(), String> {
 
     write_mcp_servers(&config)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_mcp_server(id: String, name: Option<String>, config_data: Option<serde_json::Value>) -> Result<MCPServer, String> {
+    let mut config = read_mcp_servers()?;
+
+    let server = config.servers.iter_mut()
+        .find(|s| s.id == id)
+        .ok_or_else(|| format!("MCP server with id '{}' not found", id))?;
+
+    if let Some(new_name) = name {
+        server.name = new_name;
+    }
+
+    if let Some(new_config) = config_data {
+        server.config = new_config;
+    }
+
+    let updated_server = server.clone();
+
+    write_mcp_servers(&config)?;
+
+    Ok(updated_server)
 }
 
 // ============================================================================

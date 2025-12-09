@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 use tracing::{error, info, warn};
 
 /// Maximum number of tool use iterations to prevent infinite loops.
@@ -21,6 +22,7 @@ const MAX_TOOL_ITERATIONS: usize = 10;
 pub struct BriefingCard {
     pub title: String,
     pub summary: String,
+    pub detailed_content: String, // Full research text (2-3 paragraphs)
     pub sources: Vec<String>,
     pub suggested_next: Option<String>,
     pub relevance: String,
@@ -36,6 +38,96 @@ pub struct ResearchResult {
     pub research_time_ms: u64,
     pub model_used: String,
     pub total_tokens: u32,
+}
+
+// ============================================================================
+// Research Progress Events for Real-Time Tracking
+// ============================================================================
+
+/// Event emitted when research starts
+#[derive(Serialize, Clone)]
+pub struct ResearchStartedEvent {
+    timestamp: String,
+    total_topics: usize,
+    topics: Vec<String>,
+}
+
+/// Event emitted when MCP server connects successfully
+#[derive(Serialize, Clone)]
+pub struct McpConnectedEvent {
+    timestamp: String,
+    server_name: String,
+    tool_count: usize,
+    tools: Vec<String>,
+}
+
+/// Event emitted when MCP server fails to connect
+#[derive(Serialize, Clone)]
+pub struct McpConnectionFailedEvent {
+    timestamp: String,
+    server_name: String,
+    error: String,
+}
+
+/// Event emitted when starting research for a topic
+#[derive(Serialize, Clone)]
+pub struct TopicStartedEvent {
+    timestamp: String,
+    topic_name: String,
+    topic_index: usize,
+    total_topics: usize,
+}
+
+/// Event emitted when Claude is thinking/reasoning
+#[derive(Serialize, Clone)]
+pub struct ThinkingEvent {
+    timestamp: String,
+    topic_name: String,
+    phase: String, // "initial_research" | "tool_calling" | "synthesis"
+}
+
+/// Event emitted after tool execution
+#[derive(Serialize, Clone)]
+pub struct ToolExecutedEvent {
+    timestamp: String,
+    topic_name: String,
+    tool_name: String,
+    tool_type: String, // "mcp" | "brave_search" | "builtin"
+    status: String, // "success" | "error"
+    error: Option<String>,
+}
+
+/// Event emitted when topic research completes
+#[derive(Serialize, Clone)]
+pub struct TopicCompletedEvent {
+    timestamp: String,
+    topic_name: String,
+    topic_index: usize,
+    cards_generated: usize,
+    tools_used: usize,
+}
+
+/// Event emitted when saving to database
+#[derive(Serialize, Clone)]
+pub struct SavingEvent {
+    timestamp: String,
+    total_cards: usize,
+}
+
+/// Event emitted when research completes
+#[derive(Serialize, Clone)]
+pub struct CompletedEvent {
+    timestamp: String,
+    total_topics: usize,
+    total_cards: usize,
+    duration_ms: u128,
+    success: bool,
+    error: Option<String>,
+}
+
+/// Helper to get current timestamp in RFC3339 format
+fn get_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 // ============================================================================
@@ -508,12 +600,25 @@ impl ResearchAgent {
     }
 
     /// Run research on the given topics and generate a briefing.
-    pub async fn run_research(&mut self, topics: Vec<String>) -> Result<ResearchResult, String> {
+    pub async fn run_research(
+        &mut self,
+        topics: Vec<String>,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<ResearchResult, String> {
         let start_time = Instant::now();
         info!("Starting research on {} topics", topics.len());
 
         if topics.is_empty() {
             return Err("No topics provided for research".to_string());
+        }
+
+        // Emit research:started event
+        if let Some(app) = &app_handle {
+            let _ = app.emit("research:started", ResearchStartedEvent {
+                timestamp: get_timestamp(),
+                total_topics: topics.len(),
+                topics: topics.clone(),
+            });
         }
 
         // Initialize MCP connections (non-blocking, continues without MCP if it fails)
@@ -524,14 +629,26 @@ impl ResearchAgent {
         // Step 1: Research each topic with tool support
         let mut research_content = String::new();
         let mut total_tokens: u32 = 0;
+        let mut topic_stats: Vec<(String, usize)> = Vec::new(); // Track (topic_name, cards_generated)
 
         for (i, topic) in topics.iter().enumerate() {
             info!("Researching topic {}/{}: {}", i + 1, topics.len(), topic);
+
+            // Emit research:topic_started event
+            if let Some(app) = &app_handle {
+                let _ = app.emit("research:topic_started", TopicStartedEvent {
+                    timestamp: get_timestamp(),
+                    topic_name: topic.clone(),
+                    topic_index: i,
+                    total_topics: topics.len(),
+                });
+            }
 
             match self.research_topic_with_tools(topic).await {
                 Ok((content, tokens)) => {
                     research_content.push_str(&format!("\n## Topic {}: {}\n{}\n", i + 1, topic, content));
                     total_tokens += tokens;
+                    topic_stats.push((topic.clone(), 0)); // Will be updated after synthesis
                 }
                 Err(e) => {
                     error!("Error researching topic '{}': {}", topic, e);
@@ -539,7 +656,19 @@ impl ResearchAgent {
                         "\n## Topic {}: {}\nError: Could not research this topic.\n",
                         i + 1, topic
                     ));
+                    topic_stats.push((topic.clone(), 0));
                 }
+            }
+
+            // Emit research:topic_completed event
+            if let Some(app) = &app_handle {
+                let _ = app.emit("research:topic_completed", TopicCompletedEvent {
+                    timestamp: get_timestamp(),
+                    topic_name: topic.clone(),
+                    topic_index: i,
+                    cards_generated: 0, // Will be known after synthesis
+                    tools_used: 0, // TODO: track tool usage count
+                });
             }
         }
 
@@ -569,6 +698,18 @@ impl ResearchAgent {
             result.research_time_ms,
             result.total_tokens
         );
+
+        // Emit research:completed event
+        if let Some(app) = &app_handle {
+            let _ = app.emit("research:completed", CompletedEvent {
+                timestamp: get_timestamp(),
+                total_topics: topics.len(),
+                total_cards: result.cards.len(),
+                duration_ms: start_time.elapsed().as_millis(),
+                success: true,
+                error: None,
+            });
+        }
 
         Ok(result)
     }
@@ -866,6 +1007,7 @@ Generate briefing cards following these guidelines:
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
 - **Summary**: Key findings and why it matters (2-4 sentences)
+- **Detailed Content**: Full research summary (2-3 paragraphs)
 - **Sources**: List of source URLs (if available, otherwise empty array)
 - **Suggested Next**: Optional next action or follow-up
 - **Relevance**: "high", "medium", or "low"
@@ -877,6 +1019,7 @@ Return ONLY valid JSON in this exact format:
     {{
       "title": "Card title",
       "summary": "Card summary with key findings and relevance.",
+      "detailed_content": "Full research summary with comprehensive details.",
       "sources": ["https://example.com/source1"],
       "suggested_next": "Optional next action",
       "relevance": "high",

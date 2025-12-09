@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
@@ -49,13 +50,32 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
   };
 
   return (
-    <div className="card p-6 hover:shadow-md transition-shadow">
+    <motion.div
+      className="glass-card p-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{
+        scale: 1.01,
+        boxShadow: "0 0 30px rgba(139, 92, 246, 0.4), 0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+      }}
+      transition={{ duration: 0.2 }}
+    >
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <span className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[relevance]}`}>
+            <motion.span
+              className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[relevance]}`}
+              animate={relevance === 'high' ? {
+                boxShadow: [
+                  "0 0 10px rgba(239, 68, 68, 0.3)",
+                  "0 0 20px rgba(239, 68, 68, 0.5)",
+                  "0 0 10px rgba(239, 68, 68, 0.3)",
+                ]
+              } : {}}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
               {relevance.toUpperCase()}
-            </span>
+            </motion.span>
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {topicName}
             </span>
@@ -72,14 +92,6 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
       <p className="text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
         {briefing.summary}
       </p>
-
-      {expanded && briefing.content && (
-        <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-          <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-            {briefing.content}
-          </p>
-        </div>
-      )}
 
       {sources.length > 0 && (
         <div className="mb-4">
@@ -154,7 +166,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
           </button>
         </div>
 
-        {briefing.content && (
+        {sources.length > 3 && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -167,12 +179,12 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             ) : (
               <>
                 <ChevronDown className="w-4 h-4" />
-                Show more
+                Show more sources
               </>
             )}
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

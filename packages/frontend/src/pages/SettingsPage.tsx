@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff } from 'lucide-react';
+import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2 } from 'lucide-react';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
+import { MagneticButton } from '../components/MagneticButton';
 
 type Tab = 'interests' | 'mcp' | 'research';
 
@@ -24,7 +25,7 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <div className="card mb-6">
+      <div className="glass-card mb-6">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex -mb-px">
             {tabs.map((tab) => (
@@ -96,13 +97,14 @@ function InterestsTab() {
           </p>
         </div>
         {!showAddForm && (
-          <button
+          <MagneticButton
             onClick={() => setShowAddForm(true)}
-            className="btn btn-primary flex items-center gap-2"
+            variant="primary"
+            className="flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Add Topic
-          </button>
+          </MagneticButton>
         )}
       </div>
 
@@ -143,10 +145,11 @@ function InterestsTab() {
               />
             </div>
             <div className="flex gap-2">
-              <button
+              <MagneticButton
                 onClick={handleAddTopic}
                 disabled={!newTopicName.trim() || saving}
-                className="btn btn-primary flex items-center gap-2"
+                variant="primary"
+                className="flex items-center gap-2"
               >
                 {saving ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -154,13 +157,13 @@ function InterestsTab() {
                   <Plus className="w-4 h-4" />
                 )}
                 Add Topic
-              </button>
-              <button
+              </MagneticButton>
+              <MagneticButton
                 onClick={() => setShowAddForm(false)}
-                className="btn btn-secondary"
+                variant="secondary"
               >
                 Cancel
-              </button>
+              </MagneticButton>
             </div>
           </div>
         </div>
@@ -182,7 +185,7 @@ function InterestsTab() {
           {topics.map((topic) => (
             <div
               key={topic.id}
-              className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+              className="flex items-center justify-between p-4 glass-nav rounded-lg"
             >
               <div className="flex-1">
                 <h4 className="font-medium text-gray-900 dark:text-white mb-1">
@@ -223,17 +226,27 @@ function InterestsTab() {
 // Preset MCP server configurations
 const MCP_PRESETS = [
   { name: 'Filesystem', command: 'npx -y @modelcontextprotocol/server-filesystem', description: 'Access local files and directories' },
-  { name: 'GitHub', command: 'npx -y @modelcontextprotocol/server-github', description: 'Access GitHub repositories and issues' },
-  { name: 'Brave Search', command: 'npx -y @anthropic/server-brave-search', description: 'Web search via Brave' },
+  { name: 'GitHub', command: 'npx -y @modelcontextprotocol/server-github', description: 'Access GitHub repositories and issues', env: { 'GITHUB_TOKEN': '' } },
+  { name: 'Brave Search', command: 'npx -y @anthropic/server-brave-search', description: 'Web search via Brave', env: { 'BRAVE_API_KEY': '' } },
   { name: 'Memory', command: 'npx -y @modelcontextprotocol/server-memory', description: 'Persistent memory storage' },
   { name: 'Fetch', command: 'npx -y @anthropic/server-fetch', description: 'Fetch web content' },
 ];
 
 function MCPServersTab() {
-  const { servers, loading, addServer, toggleServer, removeServer } = useMCPServers();
+  const { servers, loading, addServer, updateServer, toggleServer, removeServer } = useMCPServers();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerCommand, setNewServerCommand] = useState('');
+  const [newServerArgs, setNewServerArgs] = useState<string[]>([]);
+  const [newServerEnv, setNewServerEnv] = useState<Record<string, string>>({});
+  const [showNewEnvValues, setShowNewEnvValues] = useState<Record<string, boolean>>({});
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [editServerName, setEditServerName] = useState('');
+  const [editServerCommand, setEditServerCommand] = useState('');
+  const [editServerArgs, setEditServerArgs] = useState<string[]>([]);
+  const [editServerEnv, setEditServerEnv] = useState<Record<string, string>>({});
+  const [editServerEnabled, setEditServerEnabled] = useState(true);
+  const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
   const handleToggle = async (serverId: string, enabled: boolean) => {
@@ -245,9 +258,24 @@ function MCPServersTab() {
 
     setSaving(true);
     try {
-      await addServer(newServerName, { command: newServerCommand });
+      const config: Record<string, unknown> = {
+        command: newServerCommand.trim(),
+      };
+
+      if (newServerArgs.length > 0) {
+        config.args = newServerArgs;
+      }
+
+      if (Object.keys(newServerEnv).length > 0) {
+        config.env = newServerEnv;
+      }
+
+      await addServer(newServerName, config);
       setNewServerName('');
       setNewServerCommand('');
+      setNewServerArgs([]);
+      setNewServerEnv({});
+      setShowNewEnvValues({});
       setShowAddForm(false);
     } finally {
       setSaving(false);
@@ -257,10 +285,103 @@ function MCPServersTab() {
   const handleAddPreset = async (preset: typeof MCP_PRESETS[0]) => {
     setSaving(true);
     try {
-      await addServer(preset.name, { command: preset.command });
+      // Parse preset command string into command + args
+      const parts = preset.command.trim().split(/\s+/);
+      const command = parts[0] || 'npx';
+      const args = parts.slice(1);
+
+      const config: Record<string, unknown> = { command };
+      if (args.length > 0) {
+        config.args = args;
+      }
+      if (preset.env && Object.keys(preset.env).length > 0) {
+        config.env = preset.env;
+      }
+
+      await addServer(preset.name, config);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleEditServer = (server: typeof servers[0]) => {
+    setEditingServerId(server.id);
+    setEditServerName(server.name);
+    setEditServerEnabled(server.enabled);
+
+    // Extract command, args, and env separately
+    let command = 'npx';
+    let args: string[] = [];
+    let env: Record<string, string> = {};
+
+    if (server.config) {
+      if (typeof server.config === 'string') {
+        command = server.config;
+      } else {
+        if (server.config.command) {
+          command = String(server.config.command);
+        }
+        if (Array.isArray(server.config.args)) {
+          args = server.config.args.map(String);
+        }
+        if (server.config.env && typeof server.config.env === 'object') {
+          env = server.config.env as Record<string, string>;
+        }
+      }
+    }
+
+    setEditServerCommand(command);
+    setEditServerArgs(args);
+    setEditServerEnv(env);
+    setShowEnvValues({});
+    setShowAddForm(false);
+  };
+
+  const handleUpdateServer = async () => {
+    if (!editingServerId || !editServerName.trim() || !editServerCommand.trim()) return;
+
+    setSaving(true);
+    try {
+      const config: Record<string, unknown> = {
+        command: editServerCommand.trim(),
+      };
+
+      if (editServerArgs.length > 0) {
+        config.args = editServerArgs;
+      }
+
+      if (Object.keys(editServerEnv).length > 0) {
+        config.env = editServerEnv;
+      }
+
+      await updateServer(editingServerId, editServerName, config);
+
+      // Also update enabled state if changed
+      const server = servers.find(s => s.id === editingServerId);
+      if (server && server.enabled !== editServerEnabled) {
+        await toggleServer(editingServerId, editServerEnabled);
+      }
+
+      setEditingServerId(null);
+      setEditServerName('');
+      setEditServerCommand('');
+      setEditServerArgs([]);
+      setEditServerEnv({});
+      setEditServerEnabled(true);
+      setShowEnvValues({});
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingServerId(null);
+    setEditServerName('');
+    setEditServerCommand('');
+    setEditServerArgs([]);
+    setEditServerEnv({});
+    setEditServerEnabled(true);
+    setShowEnvValues({});
   };
 
   const handleRemoveServer = async (serverId: string) => {
@@ -281,13 +402,14 @@ function MCPServersTab() {
           </p>
         </div>
         {!showAddForm && (
-          <button
+          <MagneticButton
             onClick={() => setShowAddForm(true)}
-            className="btn btn-primary flex items-center gap-2"
+            variant="primary"
+            className="flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Add Server
-          </button>
+          </MagneticButton>
         )}
       </div>
 
@@ -336,6 +458,7 @@ function MCPServersTab() {
                   className="input w-full"
                 />
               </div>
+              {/* Command */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Command
@@ -344,15 +467,114 @@ function MCPServersTab() {
                   type="text"
                   value={newServerCommand}
                   onChange={(e) => setNewServerCommand(e.target.value)}
-                  placeholder="e.g., npx -y @modelcontextprotocol/server-name"
+                  placeholder="npx"
                   className="input w-full font-mono text-sm"
                 />
               </div>
-              <div className="flex gap-2">
-                <button
+
+              {/* Arguments */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Arguments
+                </label>
+                <div className="space-y-2">
+                  {newServerArgs.map((arg, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={arg}
+                        onChange={(e) => {
+                          const newArgs = [...newServerArgs];
+                          newArgs[idx] = e.target.value;
+                          setNewServerArgs(newArgs);
+                        }}
+                        className="input flex-1 font-mono text-sm"
+                        placeholder="argument"
+                      />
+                      <button
+                        onClick={() => setNewServerArgs(newServerArgs.filter((_, i) => i !== idx))}
+                        className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setNewServerArgs([...newServerArgs, ''])}
+                    className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                  >
+                    + Add Argument
+                  </button>
+                </div>
+              </div>
+
+              {/* Environment Variables */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Environment Variables
+                </label>
+                <div className="space-y-2">
+                  {Object.entries(newServerEnv).map(([key, value]) => (
+                    <div key={key} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={key}
+                        onChange={(e) => {
+                          const newEnv = { ...newServerEnv };
+                          delete newEnv[key];
+                          newEnv[e.target.value] = value;
+                          setNewServerEnv(newEnv);
+                        }}
+                        className="input flex-1 font-mono text-sm"
+                        placeholder="KEY"
+                      />
+                      <div className="flex-1 relative">
+                        <input
+                          type={showNewEnvValues[key] ? 'text' : 'password'}
+                          value={value}
+                          onChange={(e) => {
+                            setNewServerEnv({ ...newServerEnv, [key]: e.target.value });
+                          }}
+                          className="input w-full font-mono text-sm pr-10"
+                          placeholder="value"
+                        />
+                        <button
+                          onClick={() => setShowNewEnvValues({ ...showNewEnvValues, [key]: !showNewEnvValues[key] })}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        >
+                          {showNewEnvValues[key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newEnv = { ...newServerEnv };
+                          delete newEnv[key];
+                          setNewServerEnv(newEnv);
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const newKey = `VAR_${Object.keys(newServerEnv).length + 1}`;
+                      setNewServerEnv({ ...newServerEnv, [newKey]: '' });
+                    }}
+                    className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                  >
+                    + Add Variable
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <MagneticButton
                   onClick={handleAddServer}
                   disabled={!newServerName.trim() || !newServerCommand.trim() || saving}
-                  className="btn btn-primary flex items-center gap-2"
+                  variant="primary"
+                  className="flex items-center gap-2"
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -360,13 +582,13 @@ function MCPServersTab() {
                     <Plus className="w-4 h-4" />
                   )}
                   Add Server
-                </button>
-                <button
+                </MagneticButton>
+                <MagneticButton
                   onClick={() => setShowAddForm(false)}
-                  className="btn btn-secondary"
+                  variant="secondary"
                 >
                   Cancel
-                </button>
+                </MagneticButton>
               </div>
             </div>
           </div>
@@ -383,59 +605,242 @@ function MCPServersTab() {
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             No MCP servers configured yet.
           </p>
-          <button
+          <MagneticButton
             onClick={() => setShowAddForm(true)}
-            className="btn btn-primary"
+            variant="primary"
           >
             Add Your First Server
-          </button>
+          </MagneticButton>
         </div>
       ) : (
         <div className="space-y-3">
           {servers.map((server) => (
-            <div
-              key={server.id}
-              className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-            >
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    {server.name}
-                  </h4>
-                  {server.enabled && (
-                    <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+            editingServerId === server.id ? (
+              <div key={server.id} className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-start justify-between mb-4">
+                  <h3 className="font-medium text-gray-900 dark:text-white">Edit Server</h3>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  {/* Server Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Server Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editServerName}
+                      onChange={(e) => setEditServerName(e.target.value)}
+                      className="input w-full"
+                      placeholder="e.g., Brave Search"
+                    />
+                  </div>
+
+                  {/* Command */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Command
+                    </label>
+                    <input
+                      type="text"
+                      value={editServerCommand}
+                      onChange={(e) => setEditServerCommand(e.target.value)}
+                      className="input w-full font-mono text-sm"
+                      placeholder="npx"
+                    />
+                  </div>
+
+                  {/* Arguments */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Arguments
+                    </label>
+                    <div className="space-y-2">
+                      {editServerArgs.map((arg, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={arg}
+                            onChange={(e) => {
+                              const newArgs = [...editServerArgs];
+                              newArgs[idx] = e.target.value;
+                              setEditServerArgs(newArgs);
+                            }}
+                            className="input flex-1 font-mono text-sm"
+                          />
+                          <button
+                            onClick={() => setEditServerArgs(editServerArgs.filter((_, i) => i !== idx))}
+                            className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditServerArgs([...editServerArgs, ''])}
+                        className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                      >
+                        + Add Argument
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Environment Variables */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Environment Variables
+                    </label>
+                    <div className="space-y-2">
+                      {Object.entries(editServerEnv).map(([key, value]) => (
+                        <div key={key} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={key}
+                            onChange={(e) => {
+                              const newEnv = { ...editServerEnv };
+                              delete newEnv[key];
+                              newEnv[e.target.value] = value;
+                              setEditServerEnv(newEnv);
+                            }}
+                            className="input flex-1 font-mono text-sm"
+                            placeholder="KEY"
+                          />
+                          <div className="flex-1 relative">
+                            <input
+                              type={showEnvValues[key] ? 'text' : 'password'}
+                              value={value}
+                              onChange={(e) => {
+                                setEditServerEnv({ ...editServerEnv, [key]: e.target.value });
+                              }}
+                              className="input w-full font-mono text-sm pr-10"
+                              placeholder="value"
+                            />
+                            <button
+                              onClick={() => setShowEnvValues({ ...showEnvValues, [key]: !showEnvValues[key] })}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            >
+                              {showEnvValues[key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const newEnv = { ...editServerEnv };
+                              delete newEnv[key];
+                              setEditServerEnv(newEnv);
+                            }}
+                            className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          const newKey = `VAR_${Object.keys(editServerEnv).length + 1}`;
+                          setEditServerEnv({ ...editServerEnv, [newKey]: '' });
+                        }}
+                        className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                      >
+                        + Add Variable
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Enabled Toggle */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="edit-server-enabled"
+                      checked={editServerEnabled}
+                      onChange={(e) => setEditServerEnabled(e.target.checked)}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    <label htmlFor="edit-server-enabled" className="text-sm text-gray-700 dark:text-gray-300">
+                      Enabled
+                    </label>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-2">
+                    <MagneticButton
+                      onClick={handleUpdateServer}
+                      disabled={!editServerName.trim() || !editServerCommand.trim() || saving}
+                      variant="primary"
+                      className="flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save Changes
+                    </MagneticButton>
+                    <MagneticButton
+                      onClick={handleCancelEdit}
+                      variant="secondary"
+                    >
+                      Cancel
+                    </MagneticButton>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                key={server.id}
+                className="flex items-center justify-between p-4 glass-nav rounded-lg"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="font-medium text-gray-900 dark:text-white">
+                      {server.name}
+                    </h4>
+                    {server.enabled && (
+                      <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                    )}
+                  </div>
+                  {typeof server.config?.command === 'string' && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-md">
+                      {String(server.config.command)}
+                    </p>
+                  )}
+                  {server.last_used && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Last used: {new Date(server.last_used).toLocaleDateString()}
+                    </p>
                   )}
                 </div>
-                {typeof server.config?.command === 'string' && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-md">
-                    {String(server.config.command)}
-                  </p>
-                )}
-                {server.last_used && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Last used: {new Date(server.last_used).toLocaleDateString()}
-                  </p>
-                )}
+                <div className="flex items-center gap-3 ml-4">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={server.enabled}
+                      onChange={(e) => handleToggle(server.id, e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+                  </label>
+                  <button
+                    onClick={() => handleEditServer(server)}
+                    className="p-2 text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                    aria-label="Edit server"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRemoveServer(server.id)}
+                    className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                    aria-label="Remove server"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-3 ml-4">
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={server.enabled}
-                    onChange={(e) => handleToggle(server.id, e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
-                </label>
-                <button
-                  onClick={() => handleRemoveServer(server.id)}
-                  className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                  aria-label="Remove server"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            )
           ))}
         </div>
       )}
@@ -572,14 +977,15 @@ function ResearchSettingsTab() {
                       {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <button
+                  <MagneticButton
                     onClick={handleSaveApiKey}
                     disabled={!newApiKey.trim() || savingApiKey}
-                    className="btn btn-primary flex items-center gap-1.5"
+                    variant="primary"
+                    className="flex items-center gap-1.5"
                   >
                     {savingApiKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     Save
-                  </button>
+                  </MagneticButton>
                 </div>
                 {apiKeyError && (
                   <p className="text-xs text-red-600 dark:text-red-400 mt-2">{apiKeyError}</p>
@@ -611,14 +1017,15 @@ function ResearchSettingsTab() {
                     {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <button
+                <MagneticButton
                   onClick={handleSaveApiKey}
                   disabled={!newApiKey.trim() || savingApiKey}
-                  className="btn btn-primary flex items-center gap-1.5"
+                  variant="primary"
+                  className="flex items-center gap-1.5"
                 >
                   {savingApiKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   Save
-                </button>
+                </MagneticButton>
               </div>
               {apiKeyError && (
                 <p className="text-xs text-red-600 dark:text-red-400 mt-2">{apiKeyError}</p>
@@ -732,10 +1139,11 @@ function ResearchSettingsTab() {
         </div>
 
         <div className="pt-6 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-          <button
+          <MagneticButton
             onClick={handleRunNow}
             disabled={running}
-            className="btn btn-secondary flex items-center gap-2"
+            variant="secondary"
+            className="flex items-center gap-2"
           >
             {running ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -743,12 +1151,13 @@ function ResearchSettingsTab() {
               <Play className="w-4 h-4" />
             )}
             Run Research Now
-          </button>
+          </MagneticButton>
 
-          <button
+          <MagneticButton
             onClick={handleSave}
             disabled={saving}
-            className="btn btn-primary flex items-center gap-2"
+            variant="primary"
+            className="flex items-center gap-2"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -756,7 +1165,7 @@ function ResearchSettingsTab() {
               <Save className="w-4 h-4" />
             )}
             Save Settings
-          </button>
+          </MagneticButton>
         </div>
       </div>
     </div>

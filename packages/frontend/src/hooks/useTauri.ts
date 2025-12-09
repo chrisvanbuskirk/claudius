@@ -264,6 +264,26 @@ export function useMCPServers() {
     }
   }, []);
 
+  const updateServer = useCallback(async (id: string, name?: string, config?: Record<string, unknown>) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await safeInvoke<MCPServer>('update_mcp_server', {
+        id,
+        name: name || null,
+        config_data: config || null
+      });
+      setServers(prev => prev.map(s => s.id === id ? result : s));
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update MCP server';
+      setError(errorMessage);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const removeServer = useCallback(async (id: string) => {
     setLoading(true);
     setError(null);
@@ -288,6 +308,7 @@ export function useMCPServers() {
     error,
     getServers,
     addServer,
+    updateServer,
     toggleServer,
     removeServer,
   };

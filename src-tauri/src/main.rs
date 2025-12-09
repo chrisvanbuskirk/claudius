@@ -51,6 +51,7 @@ fn main() {
             commands::get_mcp_servers,
             commands::toggle_mcp_server,
             commands::add_mcp_server,
+            commands::update_mcp_server,
             commands::remove_mcp_server,
             // Settings commands
             commands::get_settings,
