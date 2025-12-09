@@ -739,29 +739,40 @@ impl ResearchAgent {
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
+        // Get current date for research context
+        let current_date = chrono::Local::now().format("%B %d, %Y").to_string();
+
         let system_prompt = format!(
             r#"You are a research assistant gathering information on topics of interest.
+
+IMPORTANT: Today's date is {}. You must focus on finding information from December 2025 and late 2025. Any information from 2024 or earlier is outdated and should be avoided unless it provides essential background context.
+
 You have access to the following tools to fetch real-time data:
 {}
 
-Use these tools when they would provide valuable, current information about the topic.
-For example, if researching "Rust programming", you might fetch recent activity from rust-lang/rust.
-If researching a news topic, you might fetch relevant news articles.
+Use these tools proactively to find current December 2025 information:
+- Use fetch_webpage to get content from news sites, tech blogs, and documentation that are likely to have December 2025 updates
+- For tech topics, target URLs like TechCrunch, The Verge, Hacker News, company blogs, and official documentation
+- Use get_github_activity for open source projects to see recent commits, PRs, and releases from December 2025
+- When fetching web pages, prioritize URLs with "/2025/" or recent blog posts
 
-After gathering information, provide a comprehensive research summary."#,
+After gathering current information, provide a comprehensive research summary based on December 2025 data."#,
+            current_date,
             tool_descriptions.join("\n")
         );
 
         let user_prompt = format!(
             r#"Research the following topic and provide:
-1. Key recent developments (last 24-48 hours if available, otherwise recent news)
+1. Key recent developments from December 2025 (ideally within the last 24-48 hours, or at minimum from late 2025)
 2. Why this might be relevant to someone interested in this topic
 3. Actionable insights or next steps
-4. Any credible sources you're aware of
+4. Credible sources with dates (MUST be from 2025, preferably December 2025)
 
 Topic: {}
 
-Use the available tools if they would help gather current information. Then provide a concise but informative research summary (2-3 paragraphs)."#,
+CRITICAL: Use the available tools aggressively to fetch current December 2025 information. Do NOT rely solely on your training data, as it may be outdated. If you can't find December 2025 information after trying multiple sources, explicitly state this limitation.
+
+Provide a concise but informative research summary (2-3 paragraphs) based on current December 2025 data."#,
             topic
         );
         let mut messages = vec![Message {
