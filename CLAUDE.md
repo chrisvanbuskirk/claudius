@@ -59,6 +59,112 @@ claudius/
 | Sonnet 4.5 | `claude-sonnet-4-5-20250929` | Balanced quality/cost |
 | Opus 4.5 | `claude-opus-4-5-20251101` | Highest quality |
 
+## Research Agent: MCP Integration & Dynamic Dates
+
+### Critical Research Quality Factors
+
+The research agent's effectiveness depends heavily on **real-time web search capabilities**. Without MCP servers like Brave Search and Perplexity, Claude can only use its training data (which may be outdated) or fetch individual URLs via `fetch_webpage`.
+
+**Recommended Setup**: Enable both Brave Search (free tier) and Perplexity (pay-as-you-go) MCP servers for optimal research quality.
+
+### Dynamic Date Context
+
+Research prompts (`src-tauri/src/research.rs`) calculate dates dynamically at runtime to ensure Claude always searches for current information:
+
+```rust
+let now = chrono::Local::now();
+let current_date = now.format("%B %d, %Y").to_string();      // "December 9, 2025"
+let current_month = now.format("%B").to_string();             // "December"
+let current_year = now.format("%Y").to_string();              // "2025"
+let prev_year = (now.year() - 1).to_string();                 // "2024"
+let month_year = now.format("%B %Y").to_string();            // "December 2025"
+```
+
+These variables are interpolated into the system prompt to:
+1. State the current date explicitly: "Today's date is {current_date}"
+2. Require information from {month_year} and late {current_year}
+3. Mark {prev_year} content as outdated
+4. Format search queries: "[topic] {month_year}"
+
+**Why This Matters**: Claude needs explicit date context because its training data has a cutoff. Without stating "Today is December 9, 2025", Claude may return outdated information or not realize it should be searching for December 2025 content.
+
+### MCP Tool Priority
+
+The research agent prioritizes tools in this order:
+
+1. **Search Tools** (if available):
+   - `brave_search`: Primary real-time web search
+   - `perplexity`: AI-powered search for validation
+   - Queries formatted as: `"[topic] {month_year}"` or `"[topic] {current_year} latest news"`
+
+2. **Content Fetching**:
+   - `fetch_webpage`: Reads promising URLs discovered by search
+   - Can also be used directly with URLs likely to have current content
+
+3. **GitHub Activity** (for open source topics):
+   - `github_search`, `github_get_repo`, `github_list_commits`, etc.
+   - Gets recent activity from {month_year}
+
+4. **Graceful Degradation**:
+   - If MCP servers fail to initialize, research continues with built-in tools
+   - Claude explicitly states when current information is unavailable
+
+### System Prompt Architecture
+
+The system prompt (lines 750-784 in `research.rs`) follows this structure:
+
+```
+1. Date Context
+   "Today's date is {current_date}"
+   "Focus on {month_year} and late {current_year}"
+   "{prev_year} or earlier is outdated"
+
+2. Tool Descriptions
+   Lists all available tools (built-in + MCP)
+
+3. CRITICAL SEARCH TOOL USAGE
+   "USE brave_search or perplexity FIRST"
+   "Search for '[topic] {month_year}'"
+   "These are your primary source"
+
+4. Fetch Strategy
+   "After search, use fetch_webpage on promising URLs"
+   "If no search, target URLs with '/{current_year}' or '{month_year}'"
+```
+
+### User Prompt Architecture
+
+The user prompt (lines 786-806) specifies:
+
+```
+Research: {topic}
+
+Provide:
+1. Key developments from {month_year} (last 24-48 hours)
+2. Relevance and actionable insights
+3. Sources dated {current_year}, preferably {month_year}
+
+CRITICAL: Use tools aggressively for {month_year} info
+Do NOT rely solely on training data
+If you can't find {month_year} info, state this explicitly
+```
+
+### Event Flow for Synthesis Phase
+
+The research agent emits progress events throughout the lifecycle:
+
+```
+research:started          → Research begins (total topics)
+research:topic_started    → Per-topic research starts
+research:topic_completed  → Per-topic research done (cards generated)
+research:synthesis_started → Synthesis of all research begins
+research:synthesis_completed → Synthesis done (cards generated, duration)
+research:saving           → Saving to database
+research:completed        → Full research session done
+```
+
+**Synthesis Phase** (lines 1078-1113): After completing all topic research, the agent calls Claude again to synthesize all research content into cohesive briefing cards. This phase typically takes 60-90 seconds and now has dedicated progress events so users know synthesis is happening.
+
 - **Build**: npm workspaces monorepo
 
 ## Development Commands

@@ -102,6 +102,44 @@ All Claudius data is stored locally in `~/.claudius/`:
 - Rust (for Tauri development)
 - Anthropic API key
 
+## Recommended: MCP Servers for Enhanced Research
+
+**⚡ HIGHLY RECOMMENDED**: While Claudius works with just the Anthropic API key, adding MCP servers dramatically improves research quality by enabling real-time web search instead of relying solely on Claude's training data.
+
+### Top Recommendations
+
+| Server | Cost | Why Use It | Documentation |
+|--------|------|------------|---------------|
+| **Brave Search** | **Free tier available** | Real-time web search for current news, articles, and documentation | [Setup Guide](https://github.com/brave/brave-search-mcp-server) |
+| **Perplexity** | Pay-as-you-go | AI-powered search that validates and enriches research | [Setup Guide](https://docs.perplexity.ai/guides/mcp-server) |
+
+### How Research Works With MCP Servers
+
+**Without MCP servers**: Claude relies on training data (may be outdated) and can only fetch individual URLs you configure.
+
+**With Brave Search + Perplexity**: Claude actively searches the web for current information, discovers relevant URLs, and validates findings with AI search. This is especially critical for topics like:
+- Technology news and product launches
+- Software releases and updates
+- Industry trends and events
+- Recent research papers
+
+### Quick Setup
+
+1. **Get API Keys**:
+   - Brave Search: Sign up at https://brave.com/search/api/ (free tier: 2,000 queries/month)
+   - Perplexity: Sign up at https://www.perplexity.ai/settings/api (pay-as-you-go pricing)
+
+2. **Configure in Claudius**:
+   - Open Claudius Settings
+   - Navigate to "MCP Servers"
+   - Add your API keys for Brave Search and Perplexity
+   - Enable both servers
+   - Click "Save"
+
+3. **Run Research**: Your next research run will automatically use these search tools for up-to-date information.
+
+**Note**: The included example configuration at `mcp-servers.example.json` shows all available MCP servers, including GitHub, Fetch, and Memory servers.
+
 ## Quick Start
 
 ### For End Users
