@@ -5,7 +5,7 @@
 
 use crate::db::get_connection;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 // ============================================================================
 // Error Types
@@ -158,6 +158,7 @@ impl std::error::Error for ResearchError {}
 #[derive(Debug, Deserialize)]
 struct AnthropicApiError {
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     error_type: Option<String>,
     error: Option<AnthropicErrorDetail>,
 }
@@ -238,6 +239,7 @@ pub enum LogType {
     ToolCall,
     ApiRequest,
     McpCall,
+    #[allow(dead_code)]
     Error,
 }
 
@@ -303,6 +305,7 @@ impl ResearchLogEntry {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_briefing_id(mut self, id: i64) -> Self {
         self.briefing_id = Some(id);
         self

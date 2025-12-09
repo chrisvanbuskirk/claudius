@@ -97,6 +97,13 @@ export interface HeartbeatEvent extends ResearchEvent {
   message: string;
 }
 
+// Event: Web search used by Claude
+export interface WebSearchEvent extends ResearchEvent {
+  topic_name: string;
+  search_query?: string;
+  status: 'started' | 'completed';
+}
+
 // Union type for all events
 export type ResearchProgressEvent =
   | { type: 'research:started'; data: ResearchStartedEvent }
@@ -112,4 +119,5 @@ export type ResearchProgressEvent =
   | { type: 'research:completed'; data: CompletedEvent }
   | { type: 'research:cancelled'; data: CancelledEvent }
   | { type: 'research:reset'; data: ResetEvent }
-  | { type: 'research:heartbeat'; data: HeartbeatEvent };
+  | { type: 'research:heartbeat'; data: HeartbeatEvent }
+  | { type: 'research:web_search'; data: WebSearchEvent };

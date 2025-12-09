@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle } from 'lucide-react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -959,15 +960,20 @@ function MCPServersTab() {
 function ResearchSettingsTab() {
   const { settings, loading, updateSettings, runResearch } = useSettings();
   const { maskedKey, hasKey, loading: apiKeyLoading, setApiKey } = useApiKey();
-  const [localSettings, setLocalSettings] = useState(settings);
-
-  // Sync localSettings when settings load from backend
-  const settingsLoaded = !loading && settings;
-  if (settingsLoaded && !localSettings) {
-    setLocalSettings(settings);
-  }
-  const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [savedIndicator, setSavedIndicator] = useState<string | null>(null);
+
+  // Auto-save helper with visual feedback
+  const autoSave = async (key: string, value: unknown) => {
+    if (!settings) return;
+    try {
+      await updateSettings({ ...settings, [key]: value });
+      setSavedIndicator(key);
+      setTimeout(() => setSavedIndicator(null), 1500);
+    } catch (err) {
+      console.error('Failed to save setting:', err);
+    }
+  };
 
   // API Key state
   const [newApiKey, setNewApiKey] = useState('');
@@ -995,17 +1001,6 @@ function ResearchSettingsTab() {
       setApiKeyError(err instanceof Error ? err.message : 'Failed to save API key');
     } finally {
       setSavingApiKey(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!localSettings) return;
-
-    setSaving(true);
-    try {
-      await updateSettings(localSettings);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -1145,13 +1140,67 @@ function ResearchSettingsTab() {
           )}
         </div>
 
+        {/* Web Search Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Web Search</h3>
+          </div>
+          <div className="flex items-start gap-3">
+            <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input
+                type="checkbox"
+                checked={settings.enable_web_search ?? false}
+                onChange={(e) => autoSave('enable_web_search', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+            </label>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Enable Claude Web Search
+                </span>
+                {savedIndicator === 'enable_web_search' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Claude's built-in web search for real-time information. <span className="text-amber-600 dark:text-amber-400 font-medium">Costs $0.01 per search</span>.
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Alternative: Configure <span className="font-medium">Brave Search</span> MCP server (free tier available) in the MCP Servers tab.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Research Schedule
-          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Research Schedule
+            </label>
+            {savedIndicator === 'schedule_cron' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
           <select
-            value={localSettings?.schedule_cron || settings.schedule_cron}
-            onChange={(e) => setLocalSettings(prev => ({ ...prev!, schedule_cron: e.target.value }))}
+            value={settings.schedule_cron}
+            onChange={(e) => autoSave('schedule_cron', e.target.value)}
             className="input w-full"
           >
             <option value="0 6 * * *">Daily at 6:00 AM</option>
@@ -1172,12 +1221,24 @@ function ResearchSettingsTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            AI Model
-          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              AI Model
+            </label>
+            {savedIndicator === 'model' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
           <select
-            value={localSettings?.model || settings.model}
-            onChange={(e) => setLocalSettings(prev => ({ ...prev!, model: e.target.value }))}
+            value={settings.model}
+            onChange={(e) => autoSave('model', e.target.value)}
             className="input w-full"
           >
             <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (fastest, cheapest)</option>
@@ -1187,12 +1248,24 @@ function ResearchSettingsTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Research Depth
-          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Research Depth
+            </label>
+            {savedIndicator === 'research_depth' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
           <select
-            value={localSettings?.research_depth || settings.research_depth}
-            onChange={(e) => setLocalSettings(prev => ({ ...prev!, research_depth: e.target.value as 'shallow' | 'medium' | 'deep' }))}
+            value={settings.research_depth}
+            onChange={(e) => autoSave('research_depth', e.target.value)}
             className="input w-full"
           >
             <option value="shallow">Shallow (faster, fewer sources)</option>
@@ -1202,15 +1275,37 @@ function ResearchSettingsTab() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Max Sources Per Topic
-          </label>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Max Sources Per Topic
+            </label>
+            {savedIndicator === 'max_sources_per_topic' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
           <input
             type="number"
             min="1"
             max="50"
-            value={localSettings?.max_sources_per_topic || settings.max_sources_per_topic}
-            onChange={(e) => setLocalSettings(prev => ({ ...prev!, max_sources_per_topic: parseInt(e.target.value) }))}
+            defaultValue={settings.max_sources_per_topic}
+            onBlur={(e) => {
+              const value = parseInt(e.target.value);
+              if (!isNaN(value) && value >= 1 && value <= 50) {
+                if (value !== settings.max_sources_per_topic) {
+                  autoSave('max_sources_per_topic', value);
+                }
+              } else {
+                // Reset to previous valid value on invalid input
+                e.target.value = settings.max_sources_per_topic.toString();
+              }
+            }}
             className="input w-full"
           />
         </div>
@@ -1219,8 +1314,19 @@ function ResearchSettingsTab() {
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={localSettings?.enable_notifications ?? settings.enable_notifications}
-              onChange={(e) => setLocalSettings(prev => ({ ...prev!, enable_notifications: e.target.checked }))}
+              checked={settings.enable_notifications}
+              onChange={async (e) => {
+                const enabled = e.target.checked;
+                // Request notification permission when enabling
+                if (enabled) {
+                  try {
+                    await invoke<boolean>('request_notification_permission');
+                  } catch (err) {
+                    console.error('Failed to request notification permission:', err);
+                  }
+                }
+                autoSave('enable_notifications', enabled);
+              }}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
@@ -1228,29 +1334,49 @@ function ResearchSettingsTab() {
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Enable Notifications
           </span>
+          {savedIndicator === 'enable_notifications' && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+            >
+              <CheckCircle2 className="w-3 h-3" /> Saved
+            </motion.span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={localSettings?.notification_sound ?? settings.notification_sound ?? true}
-              onChange={(e) => setLocalSettings(prev => ({ ...prev!, notification_sound: e.target.checked }))}
-              disabled={!(localSettings?.enable_notifications ?? settings.enable_notifications)}
+              checked={settings.notification_sound ?? true}
+              onChange={(e) => autoSave('notification_sound', e.target.checked)}
+              disabled={!settings.enable_notifications}
               className="sr-only peer"
             />
-            <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600 ${!(localSettings?.enable_notifications ?? settings.enable_notifications) ? 'opacity-50' : ''}`}></div>
+            <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600 ${!settings.enable_notifications ? 'opacity-50' : ''}`}></div>
           </label>
-          <span className={`text-sm font-medium text-gray-700 dark:text-gray-300 ${!(localSettings?.enable_notifications ?? settings.enable_notifications) ? 'opacity-50' : ''}`}>
+          <span className={`text-sm font-medium text-gray-700 dark:text-gray-300 ${!settings.enable_notifications ? 'opacity-50' : ''}`}>
             Notification Sound
           </span>
+          {savedIndicator === 'notification_sound' && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+            >
+              <CheckCircle2 className="w-3 h-3" /> Saved
+            </motion.span>
+          )}
         </div>
 
-        <div className="pt-6 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
           <MagneticButton
             onClick={handleRunNow}
             disabled={running}
-            variant="secondary"
+            variant="primary"
             className="flex items-center gap-2"
           >
             {running ? (
@@ -1259,20 +1385,6 @@ function ResearchSettingsTab() {
               <Play className="w-4 h-4" />
             )}
             Run Research Now
-          </MagneticButton>
-
-          <MagneticButton
-            onClick={handleSave}
-            disabled={saving}
-            variant="primary"
-            className="flex items-center gap-2"
-          >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save Settings
           </MagneticButton>
         </div>
       </div>

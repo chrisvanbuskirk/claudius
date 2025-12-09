@@ -36,6 +36,7 @@ pub fn get_state() -> ResearchState {
 }
 
 /// Check if research is currently running
+#[allow(dead_code)]
 pub fn is_running() -> bool {
     get_state().is_running
 }
@@ -60,12 +61,15 @@ pub fn set_running(phase: &str) -> Result<Arc<AtomicBool>, String> {
 }
 
 /// Set research as not running
-pub fn set_stopped() {
-    if let Ok(mut state) = GLOBAL_STATE.lock() {
-        state.is_running = false;
-        state.current_phase = String::new();
-        state.started_at = None;
-    }
+pub fn set_stopped() -> Result<(), String> {
+    let mut state = GLOBAL_STATE
+        .lock()
+        .map_err(|e| format!("Failed to lock research state in set_stopped: {}", e))?;
+
+    state.is_running = false;
+    state.current_phase = String::new();
+    state.started_at = None;
+    Ok(())
 }
 
 /// Update the current phase
@@ -143,7 +147,7 @@ mod tests {
     fn test_set_stopped() {
         reset();
         let _ = set_running("starting").unwrap();
-        set_stopped();
+        set_stopped().unwrap();
         assert!(!is_running());
     }
 

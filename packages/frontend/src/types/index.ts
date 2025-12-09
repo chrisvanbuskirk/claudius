@@ -37,6 +37,7 @@ export interface ResearchSettings {
   max_sources_per_topic: number;
   enable_notifications: boolean;
   notification_sound: boolean;
+  enable_web_search?: boolean;
 }
 
 export interface UserFeedback {

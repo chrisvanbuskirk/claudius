@@ -20,6 +20,13 @@ use tracing::{debug, error, info, warn};
 /// Maximum number of tool use iterations to prevent infinite loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
 
+/// Claude's built-in web search tool type identifier.
+/// This version string may change with API updates.
+const WEB_SEARCH_TOOL_TYPE: &str = "web_search_20250305";
+
+/// Maximum number of web searches per topic to control costs (~$0.01/search).
+const WEB_SEARCH_MAX_USES: u32 = 10;
+
 /// A single briefing card containing research on a topic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BriefingCard {
@@ -57,6 +64,7 @@ pub struct ResearchStartedEvent {
 
 /// Event emitted when MCP server connects successfully
 #[derive(Serialize, Clone)]
+#[allow(dead_code)]
 pub struct McpConnectedEvent {
     timestamp: String,
     server_name: String,
@@ -66,6 +74,7 @@ pub struct McpConnectedEvent {
 
 /// Event emitted when MCP server fails to connect
 #[derive(Serialize, Clone)]
+#[allow(dead_code)]
 pub struct McpConnectionFailedEvent {
     timestamp: String,
     server_name: String,
@@ -83,6 +92,7 @@ pub struct TopicStartedEvent {
 
 /// Event emitted when Claude is thinking/reasoning
 #[derive(Serialize, Clone)]
+#[allow(dead_code)]
 pub struct ThinkingEvent {
     timestamp: String,
     topic_name: String,
@@ -91,6 +101,7 @@ pub struct ThinkingEvent {
 
 /// Event emitted after tool execution
 #[derive(Serialize, Clone)]
+#[allow(dead_code)]
 pub struct ToolExecutedEvent {
     timestamp: String,
     topic_name: String,
@@ -112,6 +123,7 @@ pub struct TopicCompletedEvent {
 
 /// Event emitted when saving to database
 #[derive(Serialize, Clone)]
+#[allow(dead_code)]
 pub struct SavingEvent {
     timestamp: String,
     total_cards: usize,
@@ -162,6 +174,15 @@ pub struct HeartbeatEvent {
     pub message: String,
 }
 
+/// Event emitted when Claude uses built-in web search
+#[derive(Serialize, Clone)]
+pub struct WebSearchEvent {
+    pub timestamp: String,
+    pub topic_name: String,
+    pub search_query: Option<String>,
+    pub status: String, // "started" | "completed"
+}
+
 /// Helper to get current timestamp in RFC3339 format
 fn get_timestamp() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -180,13 +201,14 @@ struct Tool {
 }
 
 /// Anthropic API message request with tools.
+/// Note: `tools` uses serde_json::Value to support both regular tools and server tools (like web_search)
 #[derive(Debug, Serialize)]
 struct AnthropicRequest {
     model: String,
     max_tokens: u32,
     messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<Tool>>,
+    tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
 }
@@ -544,11 +566,13 @@ pub struct ResearchAgent {
     builtin_tools: HashSet<String>,
     /// Cancellation token for aborting research
     cancellation_token: Option<Arc<AtomicBool>>,
+    /// Enable Claude's built-in web search ($0.01/search)
+    enable_web_search: bool,
 }
 
 impl ResearchAgent {
     /// Create a new research agent.
-    pub fn new(api_key: String, model: Option<String>) -> Self {
+    pub fn new(api_key: String, model: Option<String>, enable_web_search: bool) -> Self {
         // Try to read GitHub token from environment or config
         let github_token = std::env::var("GITHUB_TOKEN").ok().or_else(|| {
             // Try to read from ~/.claudius/.env
@@ -566,6 +590,10 @@ impl ResearchAgent {
             .map(|t| t.name.clone())
             .collect();
 
+        if enable_web_search {
+            tracing::info!("Web search enabled - Claude will use built-in web search ($0.01/search)");
+        }
+
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(120))
@@ -577,6 +605,7 @@ impl ResearchAgent {
             mcp_client: None,
             builtin_tools,
             cancellation_token: None,
+            enable_web_search,
         }
     }
 
@@ -675,6 +704,30 @@ impl ResearchAgent {
         }
 
         tools
+    }
+
+    /// Get all tools as JSON values for API request, including web_search if enabled.
+    fn get_tools_json(&self) -> Vec<serde_json::Value> {
+        let tools = self.get_all_tools();
+        let mut tools_json: Vec<serde_json::Value> = tools.iter().map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema
+            })
+        }).collect();
+
+        // Add Claude's built-in web search tool if enabled
+        if self.enable_web_search {
+            tools_json.push(serde_json::json!({
+                "type": WEB_SEARCH_TOOL_TYPE,
+                "name": "web_search",
+                "max_uses": WEB_SEARCH_MAX_USES
+            }));
+            tracing::debug!("Added web_search tool to request");
+        }
+
+        tools_json
     }
 
     /// Check if a tool is a built-in tool.
@@ -832,7 +885,7 @@ impl ResearchAgent {
         // Get current date components for research context
         let now = chrono::Local::now();
         let current_date = now.format("%B %d, %Y").to_string();
-        let current_month = now.format("%B").to_string();
+        let _current_month = now.format("%B").to_string();
         let current_year = now.format("%Y").to_string();
         let prev_year = (now.year() - 1).to_string();
         let month_year = now.format("%B %Y").to_string();
@@ -938,7 +991,7 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 model: self.model.clone(),
                 max_tokens: 2048,
                 messages: messages.clone(),
-                tools: Some(tools.clone()),
+                tools: Some(self.get_tools_json()),
                 system: Some(system_prompt.to_string()),
             };
 
@@ -961,6 +1014,59 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
             // Log successful API request
             let _ = ResearchLogger::log_api_request(topic, tokens as i64, api_duration);
+
+            // Check for web_search usage in response (server_tool_use blocks)
+            // Claude's built-in web_search returns server_tool_use and web_search_tool_result blocks
+            let web_search_uses: Vec<_> = response.content.iter()
+                .filter(|c| c.content_type == "server_tool_use" || c.content_type == "web_search_tool_result")
+                .collect();
+
+            if !web_search_uses.is_empty() {
+                for block in &web_search_uses {
+                    if block.content_type == "server_tool_use" {
+                        // Extract search query from input if available
+                        let search_query = block.input.as_ref()
+                            .and_then(|i| i.get("query"))
+                            .and_then(|q| q.as_str())
+                            .map(|s| s.to_string());
+
+                        if let Some(name) = &block.name {
+                            info!("🔍 Web search initiated: tool={}, query={:?}", name, search_query);
+                        }
+
+                        // Emit web search started event
+                        if let Some(app) = app_handle {
+                            let _ = app.emit("research:web_search", WebSearchEvent {
+                                timestamp: get_timestamp(),
+                                topic_name: topic.to_string(),
+                                search_query: search_query.clone(),
+                                status: "started".to_string(),
+                            });
+                        }
+                    } else if block.content_type == "web_search_tool_result" {
+                        info!("🔍 Web search completed for topic: {}", topic);
+
+                        // Emit web search completed event
+                        if let Some(app) = app_handle {
+                            let _ = app.emit("research:web_search", WebSearchEvent {
+                                timestamp: get_timestamp(),
+                                topic_name: topic.to_string(),
+                                search_query: None,
+                                status: "completed".to_string(),
+                            });
+                        }
+
+                        // Log the web search tool result
+                        let _ = ResearchLogger::log_tool_call(
+                            topic,
+                            "web_search",
+                            "built-in web search",
+                            &format!("Web search completed (result in response)"),
+                            api_duration,
+                        );
+                    }
+                }
+            }
 
             // Check if Claude wants to use tools
             let tool_uses: Vec<_> = response.content.iter()
@@ -1444,19 +1550,34 @@ That's the summary!"#;
 
     #[test]
     fn test_research_agent_creation() {
-        let agent = ResearchAgent::new("test-api-key".to_string(), None);
+        let agent = ResearchAgent::new("test-api-key".to_string(), None, false);
         assert_eq!(agent.model, "claude-haiku-4-5-20251001");
+        assert!(!agent.enable_web_search);
 
         let agent_custom = ResearchAgent::new(
             "test-api-key".to_string(),
-            Some("claude-opus-4-5-20251101".to_string())
+            Some("claude-opus-4-5-20251101".to_string()),
+            false
         );
         assert_eq!(agent_custom.model, "claude-opus-4-5-20251101");
     }
 
+    #[test]
+    fn test_research_agent_with_web_search() {
+        let agent = ResearchAgent::new("test-api-key".to_string(), None, true);
+        assert!(agent.enable_web_search);
+
+        // Test that get_tools_json includes web_search when enabled
+        let tools = agent.get_tools_json();
+        let has_web_search = tools.iter().any(|t| {
+            t.get("type").and_then(|v| v.as_str()) == Some(WEB_SEARCH_TOOL_TYPE)
+        });
+        assert!(has_web_search, "web_search tool should be included when enabled");
+    }
+
     #[tokio::test]
     async fn test_run_research_empty_topics() {
-        let mut agent = ResearchAgent::new("test-api-key".to_string(), None);
+        let mut agent = ResearchAgent::new("test-api-key".to_string(), None, false);
         let result = agent.run_research(vec![], None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));
