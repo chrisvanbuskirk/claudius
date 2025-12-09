@@ -750,11 +750,16 @@ IMPORTANT: Today's date is {}. You must focus on finding information from Decemb
 You have access to the following tools to fetch real-time data:
 {}
 
-Use these tools proactively to find current December 2025 information:
-- Use fetch_webpage to get content from news sites, tech blogs, and documentation that are likely to have December 2025 updates
-- For tech topics, target URLs like TechCrunch, The Verge, Hacker News, company blogs, and official documentation
+CRITICAL SEARCH TOOL USAGE:
+- If you have access to brave_search or perplexity search tools, USE THEM FIRST to find December 2025 articles and information
+- Use specific search queries like "[topic] December 2025" or "[topic] 2025 latest news"
+- Search tools will give you current URLs and content - these are your primary source for December 2025 information
+- After getting search results, use fetch_webpage to read the most promising URLs in full
 - Use get_github_activity for open source projects to see recent commits, PRs, and releases from December 2025
-- When fetching web pages, prioritize URLs with "/2025/" or recent blog posts
+
+When using fetch_webpage directly (without search):
+- Target URLs likely to have December 2025 content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
+- Prioritize URLs with "/2025/" or "december-2025" in the path
 
 After gathering current information, provide a comprehensive research summary based on December 2025 data."#,
             current_date,
