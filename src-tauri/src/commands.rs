@@ -4,6 +4,8 @@ use chrono::{Local, Utc};
 use uuid::Uuid;
 use tauri::Emitter;
 use crate::db;
+use crate::research_state;
+use crate::research::CancelledEvent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Briefing {
@@ -387,6 +389,24 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
     tracing::info!("Starting research via Rust agent");
 
+    // Try to acquire the research lock and get the cancellation token
+    let cancellation_token = match research_state::set_running("starting") {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!("Cannot start research: {}", e);
+            return Err(e);
+        }
+    };
+
+    // Helper to ensure we always clean up the state
+    struct StateGuard;
+    impl Drop for StateGuard {
+        fn drop(&mut self) {
+            research_state::set_stopped();
+        }
+    }
+    let _guard = StateGuard;
+
     // Get settings
     let settings = read_settings().unwrap_or_else(|_| ResearchSettings {
         schedule_cron: "0 6 * * *".to_string(),
@@ -438,17 +458,28 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
     tracing::info!("Researching {} topics: {:?}", topics.len(), topics);
 
-    // Create research agent and run research
+    // Update phase
+    research_state::set_phase("researching");
+
+    // Create research agent and set cancellation token
     let mut agent = ResearchAgent::new(api_key, Some(settings.model));
+    agent.set_cancellation_token(cancellation_token);
+
     let result = match agent.run_research(topics, Some(app.clone())).await {
         Ok(r) => r,
         Err(e) => {
-            if settings.enable_notifications {
+            // Check if this was a cancellation
+            if e.contains("cancelled") {
+                tracing::info!("Research was cancelled by user");
+            } else if settings.enable_notifications {
                 let _ = notify_research_error(&app, &e);
             }
             return Err(e);
         }
     };
+
+    // Update phase to saving
+    research_state::set_phase("saving");
 
     // Emit research:saving event
     let _ = app.emit("research:saving", serde_json::json!({
@@ -1041,4 +1072,74 @@ pub fn get_research_logs(briefing_id: Option<i64>, limit: Option<i64>) -> Result
 pub fn get_actionable_errors(limit: Option<i64>) -> Result<Vec<ResearchLogRecord>, String> {
     let limit = limit.unwrap_or(10);
     ResearchLogger::get_actionable_errors(limit)
+}
+
+// ============================================================================
+// Research state control commands (cancellation, reset, status)
+// ============================================================================
+
+/// Cancel the currently running research operation.
+/// This will set the cancellation token and emit a cancelled event.
+#[tauri::command]
+pub fn cancel_research(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Cancel research requested");
+
+    // Get current state to include in the event
+    let state = research_state::get_state();
+
+    if !state.is_running {
+        return Err("No research is currently running".to_string());
+    }
+
+    // Set the cancellation token
+    research_state::cancel()?;
+
+    // Emit the cancelled event
+    let _ = app.emit("research:cancelled", CancelledEvent {
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        reason: "User cancelled research".to_string(),
+        phase: state.current_phase.clone(),
+        topics_completed: 0, // We don't track this in the global state
+        total_topics: 0,
+    });
+
+    tracing::info!("Research cancellation requested successfully");
+    Ok(())
+}
+
+/// Reset the research state. This is used for recovery when research gets stuck.
+/// It will reset the global state and emit a reset event.
+#[tauri::command]
+pub fn reset_research_state(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Research state reset requested");
+
+    // Reset the global state
+    research_state::reset();
+
+    // Emit reset event so frontend can update
+    let _ = app.emit("research:reset", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "reason": "Manual reset requested",
+    }));
+
+    tracing::info!("Research state reset successfully");
+    Ok(())
+}
+
+/// Get the current research status.
+/// Returns whether research is running, the current phase, and when it started.
+#[tauri::command]
+pub fn get_research_status() -> Result<serde_json::Value, String> {
+    let state = research_state::get_state();
+
+    let started_at = state.started_at.map(|t| {
+        chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
+    });
+
+    Ok(serde_json::json!({
+        "is_running": state.is_running,
+        "current_phase": state.current_phase,
+        "started_at": started_at,
+        "is_cancelled": research_state::is_cancelled(),
+    }))
 }

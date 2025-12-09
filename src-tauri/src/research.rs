@@ -5,12 +5,15 @@
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};
+use crate::research_state;
 use chrono::Datelike;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tracing::{error, info, warn};
@@ -139,6 +142,25 @@ pub struct SynthesisCompletedEvent {
     timestamp: String,
     cards_generated: usize,
     duration_ms: u128,
+}
+
+/// Event emitted when research is cancelled
+#[derive(Serialize, Clone)]
+pub struct CancelledEvent {
+    pub timestamp: String,
+    pub reason: String,
+    pub phase: String,
+    pub topics_completed: usize,
+    pub total_topics: usize,
+}
+
+/// Event emitted as a heartbeat during long operations
+#[derive(Serialize, Clone)]
+pub struct HeartbeatEvent {
+    pub timestamp: String,
+    pub phase: String,
+    pub topic_index: Option<usize>,
+    pub message: String,
 }
 
 /// Helper to get current timestamp in RFC3339 format
@@ -521,6 +543,8 @@ pub struct ResearchAgent {
     mcp_client: Option<McpClient>,
     /// Names of built-in tools (to differentiate from MCP tools)
     builtin_tools: HashSet<String>,
+    /// Cancellation token for aborting research
+    cancellation_token: Option<Arc<AtomicBool>>,
 }
 
 impl ResearchAgent {
@@ -553,7 +577,49 @@ impl ResearchAgent {
             github_token,
             mcp_client: None,
             builtin_tools,
+            cancellation_token: None,
         }
+    }
+
+    /// Set the cancellation token for this agent
+    pub fn set_cancellation_token(&mut self, token: Arc<AtomicBool>) {
+        self.cancellation_token = Some(token);
+    }
+
+    /// Check if cancellation has been requested
+    fn check_cancellation(&self) -> Result<(), String> {
+        if let Some(ref token) = self.cancellation_token {
+            if token.load(Ordering::Relaxed) {
+                return Err("Research cancelled by user".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Check cancellation and emit cancelled event if cancelled
+    fn check_cancellation_with_event(
+        &self,
+        app_handle: Option<&tauri::AppHandle>,
+        phase: &str,
+        topics_completed: usize,
+        total_topics: usize,
+    ) -> Result<(), String> {
+        if let Some(ref token) = self.cancellation_token {
+            if token.load(Ordering::Relaxed) {
+                // Emit cancelled event
+                if let Some(app) = app_handle {
+                    let _ = app.emit("research:cancelled", CancelledEvent {
+                        timestamp: get_timestamp(),
+                        reason: "User cancelled research".to_string(),
+                        phase: phase.to_string(),
+                        topics_completed,
+                        total_topics,
+                    });
+                }
+                return Err("Research cancelled by user".to_string());
+            }
+        }
+        Ok(())
     }
 
     /// Initialize MCP connections to configured servers.
@@ -649,7 +715,16 @@ impl ResearchAgent {
         let mut total_tokens: u32 = 0;
         let mut topic_stats: Vec<(String, usize)> = Vec::new(); // Track (topic_name, cards_generated)
 
+        let mut topics_completed_count = 0;
         for (i, topic) in topics.iter().enumerate() {
+            // Check for cancellation before each topic
+            self.check_cancellation_with_event(
+                app_handle.as_ref(),
+                "researching",
+                topics_completed_count,
+                topics.len(),
+            )?;
+
             info!("Researching topic {}/{}: {}", i + 1, topics.len(), topic);
 
             // Emit research:topic_started event
@@ -688,7 +763,17 @@ impl ResearchAgent {
                     tools_used: 0, // TODO: track tool usage count
                 });
             }
+
+            topics_completed_count += 1;
         }
+
+        // Check for cancellation before synthesis
+        self.check_cancellation_with_event(
+            app_handle.as_ref(),
+            "synthesizing",
+            topics_completed_count,
+            topics.len(),
+        )?;
 
         // Step 2: Synthesize into briefing cards
         info!("Synthesizing research into briefing cards");
@@ -815,6 +900,9 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
         // Agentic loop - keep going until Claude stops calling tools
         loop {
+            // Check for cancellation at each iteration
+            self.check_cancellation()?;
+
             iterations += 1;
             if iterations > MAX_TOOL_ITERATIONS {
                 warn!("Reached max tool iterations ({}), stopping", MAX_TOOL_ITERATIONS);

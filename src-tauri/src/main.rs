@@ -83,6 +83,10 @@ fn main() {
             // Research log commands
             commands::get_research_logs,
             commands::get_actionable_errors,
+            // Research state control commands
+            commands::cancel_research,
+            commands::reset_research_state,
+            commands::get_research_status,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
