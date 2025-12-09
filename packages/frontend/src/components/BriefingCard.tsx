@@ -178,7 +178,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
           </button>
         </div>
 
-        {sources.length > 3 && (
+        {(sources.length > 3 || briefing.detailed_content) && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -191,7 +191,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             ) : (
               <>
                 <ChevronDown className="w-4 h-4" />
-                Show more sources
+                {briefing.detailed_content ? 'Show details' : 'Show more sources'}
               </>
             )}
           </button>

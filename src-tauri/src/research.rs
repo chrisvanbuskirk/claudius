@@ -1006,20 +1006,26 @@ Generate briefing cards following these guidelines:
 
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
-- **Summary**: Key findings and why it matters (2-4 sentences)
-- **Detailed Content**: Full research summary (2-3 paragraphs)
+- **Summary**: Brief overview (2-4 sentences) - what the user sees by default
+- **Detailed Content**: COMPREHENSIVE research analysis (minimum 150 words, 2-3 full paragraphs)
+  - Include context, implications, technical details, and deeper insights
+  - This should be substantially longer and more detailed than the summary
+  - Think of this as the "full story" while summary is the "headline"
 - **Sources**: List of source URLs (if available, otherwise empty array)
 - **Suggested Next**: Optional next action or follow-up
 - **Relevance**: "high", "medium", or "low"
 - **Topic**: The original topic this relates to
+
+IMPORTANT: The detailed_content must be significantly more comprehensive than the summary.
+The summary is what users see at a glance. The detailed_content is what they read when they want the full analysis.
 
 Return ONLY valid JSON in this exact format:
 {{
   "cards": [
     {{
       "title": "Card title",
-      "summary": "Card summary with key findings and relevance.",
-      "detailed_content": "Full research summary with comprehensive details.",
+      "summary": "Brief overview with key findings and why it matters to the user.",
+      "detailed_content": "First paragraph provides context and background information about the topic, explaining the current situation and recent developments.\\n\\nSecond paragraph dives into the technical details, implications, and analysis of what this means. Include specific data points, quotes, or findings from the research.\\n\\nThird paragraph discusses future implications, what to watch for, and how this connects to broader trends or related topics.",
       "sources": ["https://example.com/source1"],
       "suggested_next": "Optional next action",
       "relevance": "high",
