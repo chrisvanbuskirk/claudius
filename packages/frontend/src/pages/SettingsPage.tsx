@@ -1,9 +1,85 @@
 import { useState } from 'react';
-import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2 } from 'lucide-react';
+import { Save, Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle } from 'lucide-react';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
+import { motion, AnimatePresence } from 'framer-motion';
 
 type Tab = 'interests' | 'mcp' | 'research';
+
+// Confirmation Dialog Component
+interface ConfirmDialogProps {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({
+  isOpen,
+  title,
+  message,
+  confirmLabel = 'Delete',
+  cancelLabel = 'Cancel',
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onCancel}
+        />
+        {/* Dialog */}
+        <motion.div
+          className="relative z-10 bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700"
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+        >
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+              <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                {title}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                {message}
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={onCancel}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                >
+                  {cancelLabel}
+                </button>
+                <button
+                  onClick={onConfirm}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  {confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('interests');
@@ -60,6 +136,7 @@ function InterestsTab() {
   const [newTopicDescription, setNewTopicDescription] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const handleAddTopic = async () => {
     if (!newTopicName.trim()) return;
@@ -79,9 +156,14 @@ function InterestsTab() {
     await updateTopic(topicId, undefined, undefined, enabled);
   };
 
-  const handleDeleteTopic = async (topicId: string) => {
-    if (confirm('Are you sure you want to delete this topic?')) {
-      await deleteTopic(topicId);
+  const handleDeleteTopic = (topic: { id: string; name: string }) => {
+    setDeleteConfirm(topic);
+  };
+
+  const confirmDeleteTopic = async () => {
+    if (deleteConfirm) {
+      await deleteTopic(deleteConfirm.id);
+      setDeleteConfirm(null);
     }
   };
 
@@ -208,7 +290,7 @@ function InterestsTab() {
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
                 </label>
                 <button
-                  onClick={() => handleDeleteTopic(topic.id)}
+                  onClick={() => handleDeleteTopic({ id: topic.id, name: topic.name })}
                   className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                   aria-label="Delete topic"
                 >
@@ -219,6 +301,16 @@ function InterestsTab() {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title="Delete Topic"
+        message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteTopic}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }
@@ -248,6 +340,7 @@ function MCPServersTab() {
   const [editServerEnabled, setEditServerEnabled] = useState(true);
   const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const handleToggle = async (serverId: string, enabled: boolean) => {
     await toggleServer(serverId, enabled);
@@ -384,9 +477,14 @@ function MCPServersTab() {
     setShowEnvValues({});
   };
 
-  const handleRemoveServer = async (serverId: string) => {
-    if (confirm('Are you sure you want to remove this MCP server?')) {
-      await removeServer(serverId);
+  const handleRemoveServer = (server: { id: string; name: string }) => {
+    setDeleteConfirm(server);
+  };
+
+  const confirmRemoveServer = async () => {
+    if (deleteConfirm) {
+      await removeServer(deleteConfirm.id);
+      setDeleteConfirm(null);
     }
   };
 
@@ -832,7 +930,7 @@ function MCPServersTab() {
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => handleRemoveServer(server.id)}
+                    onClick={() => handleRemoveServer({ id: server.id, name: server.name })}
                     className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                     aria-label="Remove server"
                   >
@@ -844,6 +942,16 @@ function MCPServersTab() {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title="Remove MCP Server"
+        message={`Are you sure you want to remove "${deleteConfirm?.name}"? This action cannot be undone.`}
+        confirmLabel="Remove"
+        onConfirm={confirmRemoveServer}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

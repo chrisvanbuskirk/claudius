@@ -48,6 +48,7 @@ fn main() {
             commands::add_topic,
             commands::update_topic,
             commands::delete_topic,
+            commands::reorder_topics,
             // MCP server commands
             commands::get_mcp_servers,
             commands::toggle_mcp_server,

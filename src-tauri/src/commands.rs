@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::{Local, Utc};
 use uuid::Uuid;
 use tauri::Emitter;
-use crate::db;
+use crate::db::{self, Topic};
 use crate::research_state;
 use crate::research::CancelledEvent;
 
@@ -16,22 +16,6 @@ pub struct Briefing {
     pub research_time_ms: Option<i64>,
     pub model_used: Option<String>,
     pub total_tokens: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Topic {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TopicsConfig {
-    pub topics: Vec<Topic>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,10 +60,6 @@ fn ensure_config_dir() -> Result<PathBuf, String> {
     Ok(config_dir)
 }
 
-fn get_topics_path() -> PathBuf {
-    get_config_dir().join("interests.json")
-}
-
 fn get_mcp_servers_path() -> PathBuf {
     get_config_dir().join("mcp-servers.json")
 }
@@ -113,26 +93,6 @@ fn log_agent_error(context: &str, error: &str) {
         use std::io::Write;
         let _ = file.write_all(log_entry.as_bytes());
     }
-}
-
-fn read_topics() -> Result<TopicsConfig, String> {
-    let path = get_topics_path();
-    if !path.exists() {
-        return Ok(TopicsConfig { topics: vec![] });
-    }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read topics: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse topics: {}", e))
-}
-
-fn write_topics(config: &TopicsConfig) -> Result<(), String> {
-    ensure_config_dir()?;
-    let path = get_topics_path();
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize topics: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write topics: {}", e))
 }
 
 fn read_mcp_servers() -> Result<MCPServersConfig, String> {
@@ -430,9 +390,20 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         }
     };
 
-    // Get enabled topics
-    let topics_config = match read_topics() {
-        Ok(config) => config,
+    // Get enabled topics from SQLite
+    let conn = match db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            let err = format!("Database connection failed: {}", e);
+            if settings.enable_notifications {
+                let _ = notify_research_error(&app, &err);
+            }
+            return Err(err);
+        }
+    };
+
+    let all_topics = match db::get_all_topics(&conn) {
+        Ok(t) => t,
         Err(e) => {
             if settings.enable_notifications {
                 let _ = notify_research_error(&app, &e);
@@ -441,8 +412,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         }
     };
 
-    let topics: Vec<String> = topics_config
-        .topics
+    let topics: Vec<String> = all_topics
         .iter()
         .filter(|t| t.enabled)
         .map(|t| t.name.clone())
@@ -551,11 +521,12 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
         }
     };
 
-    // Get enabled topics
-    let topics_config = read_topics()?;
+    // Get enabled topics from SQLite
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let all_topics = db::get_all_topics(&conn)?;
 
-    let topics: Vec<String> = topics_config
-        .topics
+    let topics: Vec<String> = all_topics
         .iter()
         .filter(|t| t.enabled)
         .map(|t| t.name.clone())
@@ -627,21 +598,23 @@ fn save_briefing_to_db(briefing: &serde_json::Value) -> Result<(), String> {
 }
 
 // ============================================================================
-// Topics commands
+// Topics commands (SQLite-backed)
 // ============================================================================
 
 #[tauri::command]
 pub fn get_topics() -> Result<Vec<Topic>, String> {
-    let config = read_topics()?;
-    Ok(config.topics)
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::get_all_topics(&conn)
 }
 
 #[tauri::command]
 pub fn add_topic(name: String, description: Option<String>) -> Result<Topic, String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Check if topic already exists
-    if config.topics.iter().any(|t| t.name.to_lowercase() == name.to_lowercase()) {
+    if db::topic_name_exists(&conn, &name)? {
         return Err(format!("Topic '{}' already exists", name));
     }
 
@@ -655,8 +628,8 @@ pub fn add_topic(name: String, description: Option<String>) -> Result<Topic, Str
         updated_at: now,
     };
 
-    config.topics.push(topic.clone());
-    write_topics(&config)?;
+    let sort_order = db::get_next_sort_order(&conn)?;
+    db::insert_topic(&conn, &topic, sort_order)?;
 
     Ok(topic)
 }
@@ -668,12 +641,14 @@ pub fn update_topic(
     description: Option<String>,
     enabled: Option<bool>,
 ) -> Result<Topic, String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let topic = config.topics.iter_mut()
-        .find(|t| t.id == id)
+    // Get existing topic
+    let mut topic = db::get_topic_by_id(&conn, &id)?
         .ok_or_else(|| format!("Topic with id '{}' not found", id))?;
 
+    // Update fields
     if let Some(new_name) = name {
         topic.name = new_name;
     }
@@ -685,25 +660,23 @@ pub fn update_topic(
     }
     topic.updated_at = Utc::now().to_rfc3339();
 
-    let updated_topic = topic.clone();
-    write_topics(&config)?;
+    db::update_topic(&conn, &topic)?;
 
-    Ok(updated_topic)
+    Ok(topic)
 }
 
 #[tauri::command]
 pub fn delete_topic(id: String) -> Result<(), String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::delete_topic(&conn, &id)
+}
 
-    let original_len = config.topics.len();
-    config.topics.retain(|t| t.id != id);
-
-    if config.topics.len() == original_len {
-        return Err(format!("Topic with id '{}' not found", id));
-    }
-
-    write_topics(&config)?;
-    Ok(())
+#[tauri::command]
+pub fn reorder_topics(ids: Vec<String>) -> Result<(), String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::reorder_topics(&conn, &ids)
 }
 
 // ============================================================================

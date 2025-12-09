@@ -40,8 +40,21 @@ CREATE TABLE IF NOT EXISTS research_logs (
     FOREIGN KEY (briefing_id) REFERENCES briefings(id) ON DELETE SET NULL
 );
 
+-- Topics table (migrated from JSON file)
+CREATE TABLE IF NOT EXISTS topics (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_briefings_date ON briefings(date DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_briefing ON feedback(briefing_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_briefing ON research_logs(briefing_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_type ON research_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_research_logs_error ON research_logs(error_code) WHERE error_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_topics_enabled ON topics(enabled);
+CREATE INDEX IF NOT EXISTS idx_topics_sort_order ON topics(sort_order);

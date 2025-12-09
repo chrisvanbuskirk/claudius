@@ -47,9 +47,25 @@ Claudius is a self-hosted, privacy-first research assistant. It:
 
 ## Screenshots
 
-| Home | Settings | Menu Bar |
-|:----:|:--------:|:--------:|
-| View daily briefings | Configure topics & schedule | Quick access popover |
+<p align="center">
+  <img src="screenshots/home.png" alt="Home - Daily Briefings" width="800">
+</p>
+<p align="center"><em>Home screen with daily briefing cards featuring glassmorphism design</em></p>
+
+<p align="center">
+  <img src="screenshots/topics.png" alt="Topics Configuration" width="800">
+</p>
+<p align="center"><em>Configure research topics with descriptions and enable/disable toggles</em></p>
+
+<p align="center">
+  <img src="screenshots/research_settings.png" alt="Research Settings" width="800">
+</p>
+<p align="center"><em>Research settings: schedule, model selection, and manual trigger</em></p>
+
+<p align="center">
+  <img src="screenshots/mcps.png" alt="MCP Servers" width="800">
+</p>
+<p align="center"><em>MCP server configuration for enhanced research capabilities</em></p>
 
 ## Project Structure
 
@@ -70,10 +86,9 @@ claudius/
 │       └── db.rs         # SQLite database layer
 └── ~/.claudius/       # Config & data (created at runtime)
     ├── .env              # API key (ANTHROPIC_API_KEY)
-    ├── topics.json
     ├── mcp-servers.json
-    ├── settings.json
-    └── claudius.db
+    ├── preferences.json
+    └── claudius.db       # SQLite: briefings, topics, feedback, logs
 ```
 
 ## Data Storage
@@ -83,10 +98,9 @@ All Claudius data is stored locally in `~/.claudius/`:
 | File | Contents |
 |------|----------|
 | `.env` | Your Anthropic API key (stored as `ANTHROPIC_API_KEY=sk-ant-...`) |
-| `topics.json` | Your configured research topics |
 | `mcp-servers.json` | MCP server configurations and API keys |
-| `settings.json` | App settings (schedule, model preferences, etc.) |
-| `claudius.db` | SQLite database with briefings, feedback, and research logs |
+| `preferences.json` | App settings (schedule, model preferences, etc.) |
+| `claudius.db` | SQLite database with briefings, topics, feedback, and research logs |
 
 **Note:** The `.env` file contains your API key in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
 
@@ -293,7 +307,7 @@ Claudius uses an agentic research system built in Rust that leverages Claude's `
 │  1. User triggers research (button click or scheduler)          │
 │                                                                 │
 │  2. Agent initializes:                                          │
-│     - Loads topics from ~/.claudius/topics.json                 │
+│     - Loads topics from SQLite database                         │
 │     - Connects to MCP servers from ~/.claudius/mcp-servers.json │
 │     - Discovers available tools (built-in + MCP)                │
 │                                                                 │

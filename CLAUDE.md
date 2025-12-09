@@ -228,10 +228,11 @@ Optional:
 
 SQLite database (`~/.claudius/claudius.db`) with tables:
 - `briefings` - Generated research briefings (id, date, title, cards JSON)
-- `briefing_cards` - Individual briefing cards (foreign key to briefings)
+- `topics` - Research topics (id, name, description, enabled, sort_order)
 - `feedback` - User feedback on briefings/cards (rating, reason)
-- `feedback_patterns` - Aggregated feedback patterns by topic
 - `research_logs` - Audit log of research operations
+
+Topics were migrated from JSON to SQLite for consistency. On first run after the migration, existing `~/.claudius/interests.json` is automatically migrated and renamed to `interests.json.migrated`.
 
 ## Testing
 
