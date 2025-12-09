@@ -28,6 +28,7 @@ interface BackendBriefing {
 interface BriefingCardData {
   title: string;
   summary: string;
+  detailed_content?: string;
   sources?: string[];
   suggested_next?: string;
   relevance?: string;
@@ -54,6 +55,7 @@ export function HomePage() {
             id: `${raw.id}-${i}`,
             title: card.title || raw.title,
             summary: card.summary || '',
+            detailed_content: card.detailed_content,
             sources: card.sources || [],
             suggested_next: card.suggested_next,
             relevance: (card.relevance as 'high' | 'medium' | 'low') || 'medium',

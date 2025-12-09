@@ -2,6 +2,7 @@ export interface Briefing {
   id: string;
   title: string;
   summary: string;
+  detailed_content?: string; // Full research content (2-3 paragraphs)
   sources: string[];
   suggested_next?: string;
   relevance: 'high' | 'medium' | 'low';

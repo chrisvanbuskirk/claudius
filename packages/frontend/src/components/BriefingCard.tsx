@@ -93,6 +93,18 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
         {briefing.summary}
       </p>
 
+      {briefing.detailed_content && expanded && (
+        <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+            Detailed Research
+          </h4>
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-line">
+            {briefing.detailed_content}
+          </p>
+        </div>
+      )}
+
       {sources.length > 0 && (
         <div className="mb-4">
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
