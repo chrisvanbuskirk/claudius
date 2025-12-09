@@ -1297,8 +1297,13 @@ function ResearchSettingsTab() {
             defaultValue={settings.max_sources_per_topic}
             onBlur={(e) => {
               const value = parseInt(e.target.value);
-              if (value >= 1 && value <= 50 && value !== settings.max_sources_per_topic) {
-                autoSave('max_sources_per_topic', value);
+              if (!isNaN(value) && value >= 1 && value <= 50) {
+                if (value !== settings.max_sources_per_topic) {
+                  autoSave('max_sources_per_topic', value);
+                }
+              } else {
+                // Reset to previous valid value on invalid input
+                e.target.value = settings.max_sources_per_topic.toString();
               }
             }}
             className="input w-full"

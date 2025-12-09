@@ -20,6 +20,13 @@ use tracing::{debug, error, info, warn};
 /// Maximum number of tool use iterations to prevent infinite loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
 
+/// Claude's built-in web search tool type identifier.
+/// This version string may change with API updates.
+const WEB_SEARCH_TOOL_TYPE: &str = "web_search_20250305";
+
+/// Maximum number of web searches per topic to control costs (~$0.01/search).
+const WEB_SEARCH_MAX_USES: u32 = 10;
+
 /// A single briefing card containing research on a topic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BriefingCard {
@@ -713,9 +720,9 @@ impl ResearchAgent {
         // Add Claude's built-in web search tool if enabled
         if self.enable_web_search {
             tools_json.push(serde_json::json!({
-                "type": "web_search_20250305",
+                "type": WEB_SEARCH_TOOL_TYPE,
                 "name": "web_search",
-                "max_uses": 10  // Limit to 10 searches per topic to control costs
+                "max_uses": WEB_SEARCH_MAX_USES
             }));
             tracing::debug!("Added web_search tool to request");
         }
@@ -1563,7 +1570,7 @@ That's the summary!"#;
         // Test that get_tools_json includes web_search when enabled
         let tools = agent.get_tools_json();
         let has_web_search = tools.iter().any(|t| {
-            t.get("type").and_then(|v| v.as_str()) == Some("web_search_20250305")
+            t.get("type").and_then(|v| v.as_str()) == Some(WEB_SEARCH_TOOL_TYPE)
         });
         assert!(has_web_search, "web_search tool should be included when enabled");
     }

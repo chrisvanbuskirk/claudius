@@ -3,6 +3,15 @@ use tauri_plugin_notification::NotificationExt;
 use tracing::{info, warn, error};
 use std::process::Command;
 
+/// Escape a string for safe use in AppleScript.
+/// Escapes backslashes, double quotes, and newlines.
+fn escape_applescript(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
 /// Send a notification that research is complete.
 pub fn notify_research_complete(
     app: &AppHandle,
@@ -53,8 +62,8 @@ pub fn notify_research_complete(
         let sound_option = if enable_sound { "sound name \"Glass\"" } else { "" };
         let script = format!(
             r#"display notification "{}" with title "{}" {}"#,
-            body.replace("\"", "\\\""),
-            title.replace("\"", "\\\""),
+            escape_applescript(&body),
+            escape_applescript(title),
             sound_option
         );
 
