@@ -6,6 +6,7 @@ mod scheduler;
 mod tray;
 mod notifications;
 mod research;
+mod research_state;
 mod mcp_client;
 mod research_log;
 
