@@ -6,6 +6,7 @@ mod scheduler;
 mod tray;
 mod notifications;
 mod research;
+mod research_state;
 mod mcp_client;
 mod research_log;
 
@@ -47,10 +48,12 @@ fn main() {
             commands::add_topic,
             commands::update_topic,
             commands::delete_topic,
+            commands::reorder_topics,
             // MCP server commands
             commands::get_mcp_servers,
             commands::toggle_mcp_server,
             commands::add_mcp_server,
+            commands::update_mcp_server,
             commands::remove_mcp_server,
             // Settings commands
             commands::get_settings,
@@ -81,6 +84,10 @@ fn main() {
             // Research log commands
             commands::get_research_logs,
             commands::get_actionable_errors,
+            // Research state control commands
+            commands::cancel_research,
+            commands::reset_research_state,
+            commands::get_research_status,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

@@ -2,13 +2,14 @@ export interface Briefing {
   id: string;
   title: string;
   summary: string;
+  detailed_content?: string; // Full research content (2-3 paragraphs)
   sources: string[];
   suggested_next?: string;
   relevance: 'high' | 'medium' | 'low';
   created_at: string;
   topic_id: string;
   topic_name: string;
-  content?: string;
+  content?: string; // Legacy field
   metadata?: Record<string, unknown>;
 }
 

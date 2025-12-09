@@ -3,10 +3,14 @@ import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { RefreshCw, Loader2, AlertCircle, Calendar, Play } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { motion } from 'framer-motion';
 import { BriefingCard } from '../components/BriefingCard';
+import { MagneticButton } from '../components/MagneticButton';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
+import { ResearchProgressCard } from '../components/ResearchProgressCard';
 import { useBriefings } from '../hooks/useTauri';
 import { useResearch } from '../contexts/ResearchContext';
+import { useResearchProgress } from '../hooks/useResearchProgress';
 import type { Briefing } from '../types';
 
 // Backend returns briefings with cards as JSON string
@@ -24,6 +28,7 @@ interface BackendBriefing {
 interface BriefingCardData {
   title: string;
   summary: string;
+  detailed_content?: string;
   sources?: string[];
   suggested_next?: string;
   relevance?: string;
@@ -33,6 +38,7 @@ interface BriefingCardData {
 export function HomePage() {
   const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
   const { setIsResearchRunning } = useResearch();
+  const progress = useResearchProgress();
 
   // Parse the cards JSON and flatten into individual briefing cards
   const briefings = useMemo(() => {
@@ -49,6 +55,7 @@ export function HomePage() {
             id: `${raw.id}-${i}`,
             title: card.title || raw.title,
             summary: card.summary || '',
+            detailed_content: card.detailed_content,
             sources: card.sources || [],
             suggested_next: card.suggested_next,
             relevance: (card.relevance as 'high' | 'medium' | 'low') || 'medium',
@@ -81,10 +88,19 @@ export function HomePage() {
     getTodaysBriefings();
   }, [getTodaysBriefings]);
 
+  // Update purple border aura based on progress state
+  useEffect(() => {
+    setIsResearchRunning(progress.isRunning);
+  }, [progress.isRunning, setIsResearchRunning]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await getTodaysBriefings();
+      // Ensure minimum 1200ms delay so the spin animation is clearly visible
+      const [_] = await Promise.all([
+        getTodaysBriefings(),
+        new Promise(resolve => setTimeout(resolve, 1200))
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -95,28 +111,27 @@ export function HomePage() {
     if (runningResearch) return;
 
     setRunningResearch(true);
-    setIsResearchRunning(true); // Activate the purple border aura
     setResearchError(null); // Clear any previous errors
 
-    // Safety timeout to prevent stuck purple glow (5 minutes)
-    const timeoutId = setTimeout(() => {
-      console.warn('Research timeout - forcing state reset after 5 minutes');
-      setRunningResearch(false);
-      setIsResearchRunning(false);
-      setResearchError('Research took too long and was stopped. Please try again with fewer topics.');
-    }, 5 * 60 * 1000);
-
     try {
-      await invoke('run_research_now');
-      await getTodaysBriefings();
+      // Add 6-minute timeout (slightly longer than backend timeout)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Research timeout - please try again')), 6 * 60 * 1000)
+      );
+
+      await Promise.race([
+        invoke('run_research_now'),
+        timeoutPromise
+      ]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('Research failed:', errorMessage);
       setResearchError(`Research failed: ${errorMessage}`);
     } finally {
-      clearTimeout(timeoutId); // Cancel timeout if research completes normally
+      // ALWAYS refresh briefings, even if research failed/timed out
+      // This shows any cards that were successfully generated before failure
+      await getTodaysBriefings();
       setRunningResearch(false);
-      setIsResearchRunning(false); // Deactivate the purple border aura
     }
   };
 
@@ -153,10 +168,11 @@ export function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <MagneticButton
               onClick={handleRunResearch}
               disabled={runningResearch || loading}
-              className="btn btn-primary flex items-center gap-2"
+              variant="primary"
+              className="flex items-center gap-2"
             >
               {runningResearch ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -164,20 +180,23 @@ export function HomePage() {
                 <Play className="w-4 h-4" />
               )}
               {runningResearch ? 'Running...' : 'Run Research'}
-            </button>
-            <button
+            </MagneticButton>
+            <MagneticButton
               onClick={handleRefresh}
               disabled={refreshing || loading}
-              className="btn btn-secondary flex items-center gap-2"
+              variant="secondary"
+              className="flex items-center gap-2"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
-            </button>
+            </MagneticButton>
           </div>
         </div>
       </div>
 
       <ActionableErrorsAlert />
+
+      <ResearchProgressCard progress={progress} />
 
       {researchError && (
         <div className="card p-4 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 mb-6">
@@ -243,16 +262,34 @@ export function HomePage() {
         </div>
       )}
 
-      <div className="space-y-6">
+      <motion.div
+        className="space-y-6"
+        variants={{
+          hidden: { opacity: 0 },
+          show: {
+            opacity: 1,
+            transition: { staggerChildren: 0.1 }
+          }
+        }}
+        initial="hidden"
+        animate="show"
+      >
         {briefings.map((briefing) => (
-          <BriefingCard
+          <motion.div
             key={briefing.id}
-            briefing={briefing}
-            onThumbsUp={() => handleThumbsUp(briefing.id)}
-            onThumbsDown={() => handleThumbsDown(briefing.id)}
-          />
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0 }
+            }}
+          >
+            <BriefingCard
+              briefing={briefing}
+              onThumbsUp={() => handleThumbsUp(briefing.id)}
+              onThumbsDown={() => handleThumbsDown(briefing.id)}
+            />
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {briefings.length > 0 && (
         <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">

@@ -348,7 +348,14 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        // Find the last valid char boundary at or before max_len - 3
+        let truncate_at = max_len.saturating_sub(3);
+        let truncate_pos = s.char_indices()
+            .take_while(|(idx, _)| *idx <= truncate_at)
+            .last()
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        format!("{}...", &s[..truncate_pos])
     }
 }
 

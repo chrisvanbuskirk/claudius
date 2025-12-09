@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Search, Filter, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 // date-fns available for future use
 import { BriefingCard } from '../components/BriefingCard';
+import { MagneticButton } from '../components/MagneticButton';
 import { useBriefings, useTopics } from '../hooks/useTauri';
 import type { BriefingFilters, Briefing } from '../types';
 
@@ -136,7 +138,7 @@ export function HistoryPage() {
         </p>
       </div>
 
-      <div className="card p-6 mb-6">
+      <div className="glass-card p-6 mb-6">
         <div className="flex gap-3 mb-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -149,15 +151,18 @@ export function HistoryPage() {
               className="input w-full pl-10"
             />
           </div>
-          <button
+          <MagneticButton
             onClick={handleSearch}
-            className="btn btn-primary"
+            variant="primary"
+            className="flex items-center gap-2"
           >
+            <Search className="w-4 h-4" />
             Search
-          </button>
-          <button
+          </MagneticButton>
+          <MagneticButton
             onClick={() => setShowFilters(!showFilters)}
-            className={`btn ${activeFilterCount > 0 ? 'btn-primary' : 'btn-secondary'} flex items-center gap-2`}
+            variant={activeFilterCount > 0 ? 'primary' : 'secondary'}
+            className="flex items-center gap-2"
           >
             <Filter className="w-4 h-4" />
             Filters
@@ -166,7 +171,7 @@ export function HistoryPage() {
                 {activeFilterCount}
               </span>
             )}
-          </button>
+          </MagneticButton>
         </div>
 
         {showFilters && (
@@ -220,18 +225,18 @@ export function HistoryPage() {
             </div>
 
             <div className="flex gap-3">
-              <button
+              <MagneticButton
                 onClick={handleApplyFilters}
-                className="btn btn-primary"
+                variant="primary"
               >
                 Apply Filters
-              </button>
-              <button
+              </MagneticButton>
+              <MagneticButton
                 onClick={handleClearFilters}
-                className="btn btn-secondary"
+                variant="secondary"
               >
                 Clear All
-              </button>
+              </MagneticButton>
             </div>
           </div>
         )}
@@ -278,16 +283,34 @@ export function HistoryPage() {
         </div>
       )}
 
-      <div className="space-y-6">
+      <motion.div
+        className="space-y-6"
+        variants={{
+          hidden: { opacity: 0 },
+          show: {
+            opacity: 1,
+            transition: { staggerChildren: 0.1 }
+          }
+        }}
+        initial="hidden"
+        animate="show"
+      >
         {briefings.map((briefing) => (
-          <BriefingCard
+          <motion.div
             key={briefing.id}
-            briefing={briefing}
-            onThumbsUp={() => handleThumbsUp(briefing.id)}
-            onThumbsDown={() => handleThumbsDown(briefing.id)}
-          />
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0 }
+            }}
+          >
+            <BriefingCard
+              briefing={briefing}
+              onThumbsUp={() => handleThumbsUp(briefing.id)}
+              onThumbsDown={() => handleThumbsDown(briefing.id)}
+            />
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {briefings.length > 0 && (
         <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">

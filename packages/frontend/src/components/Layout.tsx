@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { LoadingBorderAura } from './LoadingBorderAura';
+import { AnimatedBackground } from './AnimatedBackground';
 import { useResearch } from '../contexts/ResearchContext';
 
 interface LayoutProps {
@@ -11,7 +12,8 @@ export function Layout({ children }: LayoutProps) {
   const { isResearchRunning } = useResearch();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen overflow-hidden">
+      <AnimatedBackground />
       <LoadingBorderAura isActive={isResearchRunning} />
       <Sidebar />
       <main className="flex-1 overflow-y-auto">

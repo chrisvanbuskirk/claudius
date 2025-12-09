@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
@@ -11,6 +12,28 @@ function parseLocalDate(dateStr: string): Date {
     return parseISO(dateStr + 'T12:00:00'); // Use noon to avoid DST edge cases
   }
   return new Date(dateStr);
+}
+
+// Check if a string is a valid URL
+function isValidUrl(str: string): boolean {
+  try {
+    new URL(str);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Get display text for a source (hostname if URL, otherwise the string itself)
+function getSourceDisplay(source: string): { href: string | null; text: string } {
+  if (isValidUrl(source)) {
+    try {
+      return { href: source, text: new URL(source).hostname };
+    } catch {
+      return { href: null, text: source };
+    }
+  }
+  return { href: null, text: source };
 }
 
 interface BriefingCardProps {
@@ -49,13 +72,32 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
   };
 
   return (
-    <div className="card p-6 hover:shadow-md transition-shadow">
+    <motion.div
+      className="glass-card p-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{
+        scale: 1.01,
+        boxShadow: "0 0 30px rgba(139, 92, 246, 0.4), 0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+      }}
+      transition={{ duration: 0.2 }}
+    >
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <span className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[relevance]}`}>
+            <motion.span
+              className={`px-2 py-1 text-xs font-medium rounded-full border ${relevanceColors[relevance]}`}
+              animate={relevance === 'high' ? {
+                boxShadow: [
+                  "0 0 10px rgba(239, 68, 68, 0.3)",
+                  "0 0 20px rgba(239, 68, 68, 0.5)",
+                  "0 0 10px rgba(239, 68, 68, 0.3)",
+                ]
+              } : {}}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
               {relevance.toUpperCase()}
-            </span>
+            </motion.span>
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {topicName}
             </span>
@@ -73,10 +115,14 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
         {briefing.summary}
       </p>
 
-      {expanded && briefing.content && (
-        <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-          <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-            {briefing.content}
+      {briefing.detailed_content && expanded && (
+        <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+            Detailed Research
+          </h4>
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-line">
+            {briefing.detailed_content}
           </p>
         </div>
       )}
@@ -87,19 +133,28 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             Sources ({sources.length})
           </h4>
           <ul className="space-y-1">
-            {sources.slice(0, expanded ? undefined : 3).map((source, idx) => (
-              <li key={idx}>
-                <a
-                  href={source}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  {new URL(source).hostname}
-                </a>
-              </li>
-            ))}
+            {sources.slice(0, expanded ? undefined : 3).map((source, idx) => {
+              const { href, text } = getSourceDisplay(source);
+              return (
+                <li key={idx}>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {text}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                      {text}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {sources.length > 3 && !expanded && (
             <button
@@ -154,7 +209,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
           </button>
         </div>
 
-        {briefing.content && (
+        {(sources.length > 3 || briefing.detailed_content) && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -167,12 +222,12 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             ) : (
               <>
                 <ChevronDown className="w-4 h-4" />
-                Show more
+                {briefing.detailed_content ? 'Show details' : 'Show more sources'}
               </>
             )}
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

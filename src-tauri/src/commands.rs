@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use chrono::{Local, Utc};
 use uuid::Uuid;
-use crate::db;
+use tauri::Emitter;
+use crate::db::{self, Topic};
+use crate::research_state;
+use crate::research::CancelledEvent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Briefing {
@@ -13,22 +16,6 @@ pub struct Briefing {
     pub research_time_ms: Option<i64>,
     pub model_used: Option<String>,
     pub total_tokens: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Topic {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TopicsConfig {
-    pub topics: Vec<Topic>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,10 +60,6 @@ fn ensure_config_dir() -> Result<PathBuf, String> {
     Ok(config_dir)
 }
 
-fn get_topics_path() -> PathBuf {
-    get_config_dir().join("interests.json")
-}
-
 fn get_mcp_servers_path() -> PathBuf {
     get_config_dir().join("mcp-servers.json")
 }
@@ -110,26 +93,6 @@ fn log_agent_error(context: &str, error: &str) {
         use std::io::Write;
         let _ = file.write_all(log_entry.as_bytes());
     }
-}
-
-fn read_topics() -> Result<TopicsConfig, String> {
-    let path = get_topics_path();
-    if !path.exists() {
-        return Ok(TopicsConfig { topics: vec![] });
-    }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read topics: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse topics: {}", e))
-}
-
-fn write_topics(config: &TopicsConfig) -> Result<(), String> {
-    ensure_config_dir()?;
-    let path = get_topics_path();
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize topics: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write topics: {}", e))
 }
 
 fn read_mcp_servers() -> Result<MCPServersConfig, String> {
@@ -386,6 +349,24 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
     tracing::info!("Starting research via Rust agent");
 
+    // Try to acquire the research lock and get the cancellation token
+    let cancellation_token = match research_state::set_running("starting") {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!("Cannot start research: {}", e);
+            return Err(e);
+        }
+    };
+
+    // Helper to ensure we always clean up the state
+    struct StateGuard;
+    impl Drop for StateGuard {
+        fn drop(&mut self) {
+            research_state::set_stopped();
+        }
+    }
+    let _guard = StateGuard;
+
     // Get settings
     let settings = read_settings().unwrap_or_else(|_| ResearchSettings {
         schedule_cron: "0 6 * * *".to_string(),
@@ -409,9 +390,20 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         }
     };
 
-    // Get enabled topics
-    let topics_config = match read_topics() {
-        Ok(config) => config,
+    // Get enabled topics from SQLite
+    let conn = match db::get_connection() {
+        Ok(c) => c,
+        Err(e) => {
+            let err = format!("Database connection failed: {}", e);
+            if settings.enable_notifications {
+                let _ = notify_research_error(&app, &err);
+            }
+            return Err(err);
+        }
+    };
+
+    let all_topics = match db::get_all_topics(&conn) {
+        Ok(t) => t,
         Err(e) => {
             if settings.enable_notifications {
                 let _ = notify_research_error(&app, &e);
@@ -420,8 +412,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         }
     };
 
-    let topics: Vec<String> = topics_config
-        .topics
+    let topics: Vec<String> = all_topics
         .iter()
         .filter(|t| t.enabled)
         .map(|t| t.name.clone())
@@ -437,17 +428,34 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
     tracing::info!("Researching {} topics: {:?}", topics.len(), topics);
 
-    // Create research agent and run research
+    // Update phase
+    research_state::set_phase("researching");
+
+    // Create research agent and set cancellation token
     let mut agent = ResearchAgent::new(api_key, Some(settings.model));
-    let result = match agent.run_research(topics).await {
+    agent.set_cancellation_token(cancellation_token);
+
+    let result = match agent.run_research(topics, Some(app.clone())).await {
         Ok(r) => r,
         Err(e) => {
-            if settings.enable_notifications {
+            // Check if this was a cancellation
+            if e.contains("cancelled") {
+                tracing::info!("Research was cancelled by user");
+            } else if settings.enable_notifications {
                 let _ = notify_research_error(&app, &e);
             }
             return Err(e);
         }
     };
+
+    // Update phase to saving
+    research_state::set_phase("saving");
+
+    // Emit research:saving event
+    let _ = app.emit("research:saving", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "total_cards": result.cards.len(),
+    }));
 
     // Save to database
     let cards_json = serde_json::to_string(&result.cards)
@@ -474,6 +482,16 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         result.cards.len(),
         result.research_time_ms
     );
+
+    // Clear research state
+    research_state::set_stopped();
+
+    // Emit research:completed event after successful save
+    let _ = app.emit("research:completed", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "total_cards": result.cards.len(),
+        "duration_ms": result.research_time_ms,
+    }));
 
     // Send success notification
     if settings.enable_notifications {
@@ -513,11 +531,12 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
         }
     };
 
-    // Get enabled topics
-    let topics_config = read_topics()?;
+    // Get enabled topics from SQLite
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let all_topics = db::get_all_topics(&conn)?;
 
-    let topics: Vec<String> = topics_config
-        .topics
+    let topics: Vec<String> = all_topics
         .iter()
         .filter(|t| t.enabled)
         .map(|t| t.name.clone())
@@ -531,7 +550,7 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
 
     // Create research agent and run research
     let mut agent = ResearchAgent::new(api_key, Some(settings.model));
-    let result = agent.run_research(topics).await?;
+    let result = agent.run_research(topics, None).await?;
 
     // Save to database
     let cards_json = serde_json::to_string(&result.cards)
@@ -589,21 +608,23 @@ fn save_briefing_to_db(briefing: &serde_json::Value) -> Result<(), String> {
 }
 
 // ============================================================================
-// Topics commands
+// Topics commands (SQLite-backed)
 // ============================================================================
 
 #[tauri::command]
 pub fn get_topics() -> Result<Vec<Topic>, String> {
-    let config = read_topics()?;
-    Ok(config.topics)
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::get_all_topics(&conn)
 }
 
 #[tauri::command]
 pub fn add_topic(name: String, description: Option<String>) -> Result<Topic, String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Check if topic already exists
-    if config.topics.iter().any(|t| t.name.to_lowercase() == name.to_lowercase()) {
+    if db::topic_name_exists(&conn, &name)? {
         return Err(format!("Topic '{}' already exists", name));
     }
 
@@ -617,8 +638,8 @@ pub fn add_topic(name: String, description: Option<String>) -> Result<Topic, Str
         updated_at: now,
     };
 
-    config.topics.push(topic.clone());
-    write_topics(&config)?;
+    let sort_order = db::get_next_sort_order(&conn)?;
+    db::insert_topic(&conn, &topic, sort_order)?;
 
     Ok(topic)
 }
@@ -630,12 +651,14 @@ pub fn update_topic(
     description: Option<String>,
     enabled: Option<bool>,
 ) -> Result<Topic, String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let topic = config.topics.iter_mut()
-        .find(|t| t.id == id)
+    // Get existing topic
+    let mut topic = db::get_topic_by_id(&conn, &id)?
         .ok_or_else(|| format!("Topic with id '{}' not found", id))?;
 
+    // Update fields
     if let Some(new_name) = name {
         topic.name = new_name;
     }
@@ -647,25 +670,23 @@ pub fn update_topic(
     }
     topic.updated_at = Utc::now().to_rfc3339();
 
-    let updated_topic = topic.clone();
-    write_topics(&config)?;
+    db::update_topic(&conn, &topic)?;
 
-    Ok(updated_topic)
+    Ok(topic)
 }
 
 #[tauri::command]
 pub fn delete_topic(id: String) -> Result<(), String> {
-    let mut config = read_topics()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::delete_topic(&conn, &id)
+}
 
-    let original_len = config.topics.len();
-    config.topics.retain(|t| t.id != id);
-
-    if config.topics.len() == original_len {
-        return Err(format!("Topic with id '{}' not found", id));
-    }
-
-    write_topics(&config)?;
-    Ok(())
+#[tauri::command]
+pub fn reorder_topics(ids: Vec<String>) -> Result<(), String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Database connection failed: {}", e))?;
+    db::reorder_topics(&conn, &ids)
 }
 
 // ============================================================================
@@ -725,6 +746,29 @@ pub fn remove_mcp_server(id: String) -> Result<(), String> {
 
     write_mcp_servers(&config)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_mcp_server(id: String, name: Option<String>, config_data: Option<serde_json::Value>) -> Result<MCPServer, String> {
+    let mut config = read_mcp_servers()?;
+
+    let server = config.servers.iter_mut()
+        .find(|s| s.id == id)
+        .ok_or_else(|| format!("MCP server with id '{}' not found", id))?;
+
+    if let Some(new_name) = name {
+        server.name = new_name;
+    }
+
+    if let Some(new_config) = config_data {
+        server.config = new_config;
+    }
+
+    let updated_server = server.clone();
+
+    write_mcp_servers(&config)?;
+
+    Ok(updated_server)
 }
 
 // ============================================================================
@@ -909,13 +953,12 @@ pub fn get_todays_briefings() -> Result<Vec<Briefing>, String> {
     // Use date prefix to match both "2025-12-08" and "2025-12-08T10:30:00" formats
     let today_prefix = format!("{}%", Local::now().format("%Y-%m-%d"));
 
-    // Only return the most recent briefing for today
+    // Return ALL briefings for today (not just the most recent)
     let mut stmt = conn.prepare(
         "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
          WHERE date LIKE ?1
-         ORDER BY id DESC
-         LIMIT 1"
+         ORDER BY id DESC"
     ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     let briefings = stmt.query_map([&today_prefix], |row| {
@@ -1012,4 +1055,74 @@ pub fn get_research_logs(briefing_id: Option<i64>, limit: Option<i64>) -> Result
 pub fn get_actionable_errors(limit: Option<i64>) -> Result<Vec<ResearchLogRecord>, String> {
     let limit = limit.unwrap_or(10);
     ResearchLogger::get_actionable_errors(limit)
+}
+
+// ============================================================================
+// Research state control commands (cancellation, reset, status)
+// ============================================================================
+
+/// Cancel the currently running research operation.
+/// This will set the cancellation token and emit a cancelled event.
+#[tauri::command]
+pub fn cancel_research(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Cancel research requested");
+
+    // Get current state to include in the event
+    let state = research_state::get_state();
+
+    if !state.is_running {
+        return Err("No research is currently running".to_string());
+    }
+
+    // Set the cancellation token
+    research_state::cancel()?;
+
+    // Emit the cancelled event
+    let _ = app.emit("research:cancelled", CancelledEvent {
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        reason: "User cancelled research".to_string(),
+        phase: state.current_phase.clone(),
+        topics_completed: 0, // We don't track this in the global state
+        total_topics: 0,
+    });
+
+    tracing::info!("Research cancellation requested successfully");
+    Ok(())
+}
+
+/// Reset the research state. This is used for recovery when research gets stuck.
+/// It will reset the global state and emit a reset event.
+#[tauri::command]
+pub fn reset_research_state(app: tauri::AppHandle) -> Result<(), String> {
+    tracing::info!("Research state reset requested");
+
+    // Reset the global state
+    research_state::reset();
+
+    // Emit reset event so frontend can update
+    let _ = app.emit("research:reset", serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "reason": "Manual reset requested",
+    }));
+
+    tracing::info!("Research state reset successfully");
+    Ok(())
+}
+
+/// Get the current research status.
+/// Returns whether research is running, the current phase, and when it started.
+#[tauri::command]
+pub fn get_research_status() -> Result<serde_json::Value, String> {
+    let state = research_state::get_state();
+
+    let started_at = state.started_at.map(|t| {
+        chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
+    });
+
+    Ok(serde_json::json!({
+        "is_running": state.is_running,
+        "current_phase": state.current_phase,
+        "started_at": started_at,
+        "is_cancelled": research_state::is_cancelled(),
+    }))
 }

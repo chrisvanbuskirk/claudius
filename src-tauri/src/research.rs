@@ -5,13 +5,17 @@
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};
+use chrono::Datelike;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{error, info, warn};
+use tauri::Emitter;
+use tracing::{debug, error, info, warn};
 
 /// Maximum number of tool use iterations to prevent infinite loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
@@ -21,6 +25,7 @@ const MAX_TOOL_ITERATIONS: usize = 10;
 pub struct BriefingCard {
     pub title: String,
     pub summary: String,
+    pub detailed_content: String, // Full research text (2-3 paragraphs)
     pub sources: Vec<String>,
     pub suggested_next: Option<String>,
     pub relevance: String,
@@ -36,6 +41,130 @@ pub struct ResearchResult {
     pub research_time_ms: u64,
     pub model_used: String,
     pub total_tokens: u32,
+}
+
+// ============================================================================
+// Research Progress Events for Real-Time Tracking
+// ============================================================================
+
+/// Event emitted when research starts
+#[derive(Serialize, Clone)]
+pub struct ResearchStartedEvent {
+    timestamp: String,
+    total_topics: usize,
+    topics: Vec<String>,
+}
+
+/// Event emitted when MCP server connects successfully
+#[derive(Serialize, Clone)]
+pub struct McpConnectedEvent {
+    timestamp: String,
+    server_name: String,
+    tool_count: usize,
+    tools: Vec<String>,
+}
+
+/// Event emitted when MCP server fails to connect
+#[derive(Serialize, Clone)]
+pub struct McpConnectionFailedEvent {
+    timestamp: String,
+    server_name: String,
+    error: String,
+}
+
+/// Event emitted when starting research for a topic
+#[derive(Serialize, Clone)]
+pub struct TopicStartedEvent {
+    timestamp: String,
+    topic_name: String,
+    topic_index: usize,
+    total_topics: usize,
+}
+
+/// Event emitted when Claude is thinking/reasoning
+#[derive(Serialize, Clone)]
+pub struct ThinkingEvent {
+    timestamp: String,
+    topic_name: String,
+    phase: String, // "initial_research" | "tool_calling" | "synthesis"
+}
+
+/// Event emitted after tool execution
+#[derive(Serialize, Clone)]
+pub struct ToolExecutedEvent {
+    timestamp: String,
+    topic_name: String,
+    tool_name: String,
+    tool_type: String, // "mcp" | "brave_search" | "builtin"
+    status: String, // "success" | "error"
+    error: Option<String>,
+}
+
+/// Event emitted when topic research completes
+#[derive(Serialize, Clone)]
+pub struct TopicCompletedEvent {
+    timestamp: String,
+    topic_name: String,
+    topic_index: usize,
+    cards_generated: usize,
+    tools_used: usize,
+}
+
+/// Event emitted when saving to database
+#[derive(Serialize, Clone)]
+pub struct SavingEvent {
+    timestamp: String,
+    total_cards: usize,
+}
+
+/// Event emitted when research completes
+#[derive(Serialize, Clone)]
+pub struct CompletedEvent {
+    timestamp: String,
+    total_topics: usize,
+    total_cards: usize,
+    duration_ms: u128,
+    success: bool,
+    error: Option<String>,
+}
+
+/// Event emitted when synthesis starts
+#[derive(Serialize, Clone)]
+pub struct SynthesisStartedEvent {
+    timestamp: String,
+    research_content_length: usize,
+}
+
+/// Event emitted when synthesis completes
+#[derive(Serialize, Clone)]
+pub struct SynthesisCompletedEvent {
+    timestamp: String,
+    cards_generated: usize,
+    duration_ms: u128,
+}
+
+/// Event emitted when research is cancelled
+#[derive(Serialize, Clone)]
+pub struct CancelledEvent {
+    pub timestamp: String,
+    pub reason: String,
+    pub phase: String,
+    pub topics_completed: usize,
+    pub total_topics: usize,
+}
+
+/// Event emitted as a heartbeat during long operations
+#[derive(Serialize, Clone)]
+pub struct HeartbeatEvent {
+    pub timestamp: String,
+    pub phase: String,
+    pub topic_index: Option<usize>,
+    pub message: String,
+}
+
+/// Helper to get current timestamp in RFC3339 format
+fn get_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 // ============================================================================
@@ -354,10 +483,12 @@ async fn execute_fetch_webpage(client: &Client, url: &str) -> Result<String, Str
     // Extract text content from HTML (simple extraction)
     let text = extract_text_from_html(&html);
 
-    // Truncate if too long
-    let max_len = 8000;
-    if text.len() > max_len {
-        Ok(format!("{}...\n\n[Content truncated, {} total characters]", &text[..max_len], text.len()))
+    // Truncate if too long (use character count, not byte index to avoid UTF-8 panic)
+    let max_chars = 8000;
+    let char_count = text.chars().count();
+    if char_count > max_chars {
+        let truncated: String = text.chars().take(max_chars).collect();
+        Ok(format!("{}...\n\n[Content truncated, {} total characters]", truncated, char_count))
     } else {
         Ok(text)
     }
@@ -411,6 +542,8 @@ pub struct ResearchAgent {
     mcp_client: Option<McpClient>,
     /// Names of built-in tools (to differentiate from MCP tools)
     builtin_tools: HashSet<String>,
+    /// Cancellation token for aborting research
+    cancellation_token: Option<Arc<AtomicBool>>,
 }
 
 impl ResearchAgent {
@@ -443,7 +576,49 @@ impl ResearchAgent {
             github_token,
             mcp_client: None,
             builtin_tools,
+            cancellation_token: None,
         }
+    }
+
+    /// Set the cancellation token for this agent
+    pub fn set_cancellation_token(&mut self, token: Arc<AtomicBool>) {
+        self.cancellation_token = Some(token);
+    }
+
+    /// Check if cancellation has been requested
+    fn check_cancellation(&self) -> Result<(), String> {
+        if let Some(ref token) = self.cancellation_token {
+            if token.load(Ordering::Relaxed) {
+                return Err("Research cancelled by user".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Check cancellation and emit cancelled event if cancelled
+    fn check_cancellation_with_event(
+        &self,
+        app_handle: Option<&tauri::AppHandle>,
+        phase: &str,
+        topics_completed: usize,
+        total_topics: usize,
+    ) -> Result<(), String> {
+        if let Some(ref token) = self.cancellation_token {
+            if token.load(Ordering::Relaxed) {
+                // Emit cancelled event
+                if let Some(app) = app_handle {
+                    let _ = app.emit("research:cancelled", CancelledEvent {
+                        timestamp: get_timestamp(),
+                        reason: "User cancelled research".to_string(),
+                        phase: phase.to_string(),
+                        topics_completed,
+                        total_topics,
+                    });
+                }
+                return Err("Research cancelled by user".to_string());
+            }
+        }
+        Ok(())
     }
 
     /// Initialize MCP connections to configured servers.
@@ -508,12 +683,25 @@ impl ResearchAgent {
     }
 
     /// Run research on the given topics and generate a briefing.
-    pub async fn run_research(&mut self, topics: Vec<String>) -> Result<ResearchResult, String> {
+    pub async fn run_research(
+        &mut self,
+        topics: Vec<String>,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<ResearchResult, String> {
         let start_time = Instant::now();
         info!("Starting research on {} topics", topics.len());
 
         if topics.is_empty() {
             return Err("No topics provided for research".to_string());
+        }
+
+        // Emit research:started event
+        if let Some(app) = &app_handle {
+            let _ = app.emit("research:started", ResearchStartedEvent {
+                timestamp: get_timestamp(),
+                total_topics: topics.len(),
+                topics: topics.clone(),
+            });
         }
 
         // Initialize MCP connections (non-blocking, continues without MCP if it fails)
@@ -524,14 +712,35 @@ impl ResearchAgent {
         // Step 1: Research each topic with tool support
         let mut research_content = String::new();
         let mut total_tokens: u32 = 0;
+        let mut topic_stats: Vec<(String, usize)> = Vec::new(); // Track (topic_name, cards_generated)
 
+        let mut topics_completed_count = 0;
         for (i, topic) in topics.iter().enumerate() {
+            // Check for cancellation before each topic
+            self.check_cancellation_with_event(
+                app_handle.as_ref(),
+                "researching",
+                topics_completed_count,
+                topics.len(),
+            )?;
+
             info!("Researching topic {}/{}: {}", i + 1, topics.len(), topic);
 
-            match self.research_topic_with_tools(topic).await {
+            // Emit research:topic_started event
+            if let Some(app) = &app_handle {
+                let _ = app.emit("research:topic_started", TopicStartedEvent {
+                    timestamp: get_timestamp(),
+                    topic_name: topic.clone(),
+                    topic_index: i,
+                    total_topics: topics.len(),
+                });
+            }
+
+            match self.research_topic_with_tools(topic, app_handle.as_ref(), i).await {
                 Ok((content, tokens)) => {
                     research_content.push_str(&format!("\n## Topic {}: {}\n{}\n", i + 1, topic, content));
                     total_tokens += tokens;
+                    topic_stats.push((topic.clone(), 0)); // Will be updated after synthesis
                 }
                 Err(e) => {
                     error!("Error researching topic '{}': {}", topic, e);
@@ -539,13 +748,35 @@ impl ResearchAgent {
                         "\n## Topic {}: {}\nError: Could not research this topic.\n",
                         i + 1, topic
                     ));
+                    topic_stats.push((topic.clone(), 0));
                 }
             }
+
+            // Emit research:topic_completed event
+            if let Some(app) = &app_handle {
+                let _ = app.emit("research:topic_completed", TopicCompletedEvent {
+                    timestamp: get_timestamp(),
+                    topic_name: topic.clone(),
+                    topic_index: i,
+                    cards_generated: 0, // Will be known after synthesis
+                    tools_used: 0, // TODO: track tool usage count
+                });
+            }
+
+            topics_completed_count += 1;
         }
+
+        // Check for cancellation before synthesis
+        self.check_cancellation_with_event(
+            app_handle.as_ref(),
+            "synthesizing",
+            topics_completed_count,
+            topics.len(),
+        )?;
 
         // Step 2: Synthesize into briefing cards
         info!("Synthesizing research into briefing cards");
-        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content).await
+        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content, app_handle.as_ref()).await
             .map_err(|e| {
                 let _ = ResearchLogger::log_api_error("synthesis", &e);
                 e.message
@@ -570,41 +801,98 @@ impl ResearchAgent {
             result.total_tokens
         );
 
+        // Emit research:completed event
+        if let Some(app) = &app_handle {
+            let _ = app.emit("research:completed", CompletedEvent {
+                timestamp: get_timestamp(),
+                total_topics: topics.len(),
+                total_cards: result.cards.len(),
+                duration_ms: start_time.elapsed().as_millis(),
+                success: true,
+                error: None,
+            });
+        }
+
         Ok(result)
     }
 
     /// Research a single topic using Claude with tool support.
-    async fn research_topic_with_tools(&mut self, topic: &str) -> Result<(String, u32), String> {
+    async fn research_topic_with_tools(
+        &mut self,
+        topic: &str,
+        app_handle: Option<&tauri::AppHandle>,
+        topic_index: usize,
+    ) -> Result<(String, u32), String> {
         // Build dynamic system prompt based on available tools
         let tools = self.get_all_tools();
         let tool_descriptions: Vec<String> = tools.iter()
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
+        // Get current date components for research context
+        let now = chrono::Local::now();
+        let current_date = now.format("%B %d, %Y").to_string();
+        let current_month = now.format("%B").to_string();
+        let current_year = now.format("%Y").to_string();
+        let prev_year = (now.year() - 1).to_string();
+        let month_year = now.format("%B %Y").to_string();
+
         let system_prompt = format!(
             r#"You are a research assistant gathering information on topics of interest.
+
+IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
+
 You have access to the following tools to fetch real-time data:
 {}
 
-Use these tools when they would provide valuable, current information about the topic.
-For example, if researching "Rust programming", you might fetch recent activity from rust-lang/rust.
-If researching a news topic, you might fetch relevant news articles.
+CRITICAL SEARCH TOOL USAGE:
+- If you have access to brave_search or perplexity search tools, USE THEM FIRST to find {} articles and information
+- Use specific search queries like "[topic] {}" or "[topic] {} latest news"
+- Search tools will give you current URLs and content - these are your primary source for {} information
+- After getting search results, use fetch_webpage to read the most promising URLs in full
+- Use get_github_activity for open source projects to see recent commits, PRs, and releases from {}
 
-After gathering information, provide a comprehensive research summary."#,
-            tool_descriptions.join("\n")
+When using fetch_webpage directly (without search):
+- Target URLs likely to have {} content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
+- Prioritize URLs with "/{}" or "{}" in the path
+
+After gathering current information, provide a comprehensive research summary based on {} data."#,
+            current_date,
+            month_year,
+            current_year,
+            prev_year,
+            tool_descriptions.join("\n"),
+            month_year,
+            month_year,
+            current_year,
+            month_year,
+            month_year,
+            month_year,
+            current_year.to_lowercase(),
+            month_year.to_lowercase().replace(" ", "-"),
+            month_year
         );
 
         let user_prompt = format!(
             r#"Research the following topic and provide:
-1. Key recent developments (last 24-48 hours if available, otherwise recent news)
+1. Key recent developments from {} (ideally within the last 24-48 hours, or at minimum from late {})
 2. Why this might be relevant to someone interested in this topic
 3. Actionable insights or next steps
-4. Any credible sources you're aware of
+4. Credible sources with dates (MUST be from {}, preferably {})
 
 Topic: {}
 
-Use the available tools if they would help gather current information. Then provide a concise but informative research summary (2-3 paragraphs)."#,
-            topic
+CRITICAL: Use the available tools aggressively to fetch current {} information. Do NOT rely solely on your training data, as it may be outdated. If you can't find {} information after trying multiple sources, explicitly state this limitation.
+
+Provide a concise but informative research summary (2-3 paragraphs) based on current {} data."#,
+            month_year,
+            current_year,
+            current_year,
+            month_year,
+            topic,
+            month_year,
+            month_year,
+            month_year
         );
         let mut messages = vec![Message {
             role: "user".to_string(),
@@ -613,9 +901,33 @@ Use the available tools if they would help gather current information. Then prov
 
         let mut total_tokens: u32 = 0;
         let mut iterations = 0;
+        let mut last_heartbeat = Instant::now();
+        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
         // Agentic loop - keep going until Claude stops calling tools
         loop {
+            // Check for cancellation at each iteration
+            self.check_cancellation()?;
+
+            // Emit heartbeat if enough time has passed
+            if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
+                if let Some(app) = app_handle {
+                    let _ = app.emit(
+                        "research:heartbeat",
+                        HeartbeatEvent {
+                            timestamp: get_timestamp(),
+                            phase: "researching".to_string(),
+                            topic_index: Some(topic_index),
+                            message: format!(
+                                "Still researching '{}' (iteration {})",
+                                topic, iterations
+                            ),
+                        },
+                    );
+                }
+                last_heartbeat = Instant::now();
+            }
+
             iterations += 1;
             if iterations > MAX_TOOL_ITERATIONS {
                 warn!("Reached max tool iterations ({}), stopping", MAX_TOOL_ITERATIONS);
@@ -630,6 +942,7 @@ Use the available tools if they would help gather current information. Then prov
                 system: Some(system_prompt.to_string()),
             };
 
+            info!("Calling Claude API (iteration {}/{}) for topic: {}", iterations, MAX_TOOL_ITERATIONS, topic);
             let api_start = Instant::now();
             let response = match self.send_request(&request).await {
                 Ok(r) => r,
@@ -643,6 +956,9 @@ Use the available tools if they would help gather current information. Then prov
             let tokens = response.usage.input_tokens + response.usage.output_tokens;
             total_tokens += tokens;
 
+            info!("Claude API responded in {}ms ({} tokens, stop_reason: {:?})",
+                api_duration, tokens, response.stop_reason);
+
             // Log successful API request
             let _ = ResearchLogger::log_api_request(topic, tokens as i64, api_duration);
 
@@ -652,6 +968,7 @@ Use the available tools if they would help gather current information. Then prov
                 .collect();
 
             if tool_uses.is_empty() || response.stop_reason.as_deref() == Some("end_turn") {
+                info!("No more tool calls requested - research complete for topic: {}", topic);
                 // No more tool calls, extract the text response
                 let text_content: String = response.content.iter()
                     .filter_map(|c| {
@@ -690,6 +1007,7 @@ Use the available tools if they would help gather current information. Then prov
             });
 
             // Execute tools and build results
+            info!("Claude requested {} tool call(s)", tool_uses.len());
             let mut tool_results: Vec<ContentBlock> = Vec::new();
             let empty_input = json!({});
             for tool_use in tool_uses {
@@ -698,7 +1016,8 @@ Use the available tools if they would help gather current information. Then prov
                 let tool_input = tool_use.input.as_ref().unwrap_or(&empty_input);
                 let input_str = serde_json::to_string(tool_input).unwrap_or_default();
 
-                info!("Executing tool: {} with input: {}", tool_name, tool_input);
+                info!("Executing tool: {}", tool_name);
+                debug!("Tool input: {}", tool_input);
 
                 let tool_start = Instant::now();
 
@@ -742,6 +1061,8 @@ Use the available tools if they would help gather current information. Then prov
 
                 let (content, is_error) = match result {
                     Ok(output) => {
+                        info!("Tool {} completed in {}ms (output: {} chars)",
+                            tool_name, tool_duration, output.len());
                         // Log successful tool call - use MCP logging if it's an MCP tool
                         if is_mcp_tool {
                             let server_name = mcp_server_name.as_deref().unwrap_or("unknown");
@@ -850,6 +1171,7 @@ Use the available tools if they would help gather current information. Then prov
     async fn synthesize_briefing(
         &self,
         research_content: &str,
+        app_handle: Option<&tauri::AppHandle>,
     ) -> Result<(Vec<BriefingCard>, u32), ResearchError> {
         let prompt = format!(
             r#"You are a research assistant creating a personalized daily briefing.
@@ -865,18 +1187,26 @@ Generate briefing cards following these guidelines:
 
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
-- **Summary**: Key findings and why it matters (2-4 sentences)
+- **Summary**: Brief overview (2-4 sentences) - what the user sees by default
+- **Detailed Content**: COMPREHENSIVE research analysis (minimum 150 words, 2-3 full paragraphs)
+  - Include context, implications, technical details, and deeper insights
+  - This should be substantially longer and more detailed than the summary
+  - Think of this as the "full story" while summary is the "headline"
 - **Sources**: List of source URLs (if available, otherwise empty array)
 - **Suggested Next**: Optional next action or follow-up
 - **Relevance**: "high", "medium", or "low"
 - **Topic**: The original topic this relates to
+
+IMPORTANT: The detailed_content must be significantly more comprehensive than the summary.
+The summary is what users see at a glance. The detailed_content is what they read when they want the full analysis.
 
 Return ONLY valid JSON in this exact format:
 {{
   "cards": [
     {{
       "title": "Card title",
-      "summary": "Card summary with key findings and relevance.",
+      "summary": "Brief overview with key findings and why it matters to the user.",
+      "detailed_content": "First paragraph provides context and background information about the topic, explaining the current situation and recent developments.\\n\\nSecond paragraph dives into the technical details, implications, and analysis of what this means. Include specific data points, quotes, or findings from the research.\\n\\nThird paragraph discusses future implications, what to watch for, and how this connects to broader trends or related topics.",
       "sources": ["https://example.com/source1"],
       "suggested_next": "Optional next action",
       "relevance": "high",
@@ -891,7 +1221,7 @@ Return the JSON response now:"#,
 
         let request = AnthropicRequest {
             model: self.model.clone(),
-            max_tokens: 4096,
+            max_tokens: 8192, // Increased from 4096 to accommodate detailed_content (150+ words per card)
             messages: vec![Message {
                 role: "user".to_string(),
                 content: MessageContent::Text(prompt),
@@ -900,7 +1230,18 @@ Return the JSON response now:"#,
             system: None,
         };
 
+        // Emit synthesis:started event
+        if let Some(app) = app_handle {
+            let _ = app.emit("research:synthesis_started", SynthesisStartedEvent {
+                timestamp: get_timestamp(),
+                research_content_length: research_content.len(),
+            });
+        }
+
+        info!("Calling Claude API for synthesis (research content: {} chars)", research_content.len());
+        let synthesis_start = Instant::now();
         let response = self.send_request(&request).await?;
+        let synthesis_duration = synthesis_start.elapsed().as_millis();
 
         let content = response.content.iter()
             .filter_map(|c| c.text.clone())
@@ -909,9 +1250,22 @@ Return the JSON response now:"#,
 
         let tokens = response.usage.input_tokens + response.usage.output_tokens;
 
+        info!("Synthesis API responded in {}ms ({} tokens)", synthesis_duration, tokens);
+
         // Parse the JSON response
         let cards = parse_briefing_response(&content)
             .map_err(|e| ResearchError::new(ErrorCode::ParseError, e))?;
+
+        info!("Successfully generated {} briefing cards from synthesis", cards.len());
+
+        // Emit synthesis:completed event
+        if let Some(app) = app_handle {
+            let _ = app.emit("research:synthesis_completed", SynthesisCompletedEvent {
+                timestamp: get_timestamp(),
+                cards_generated: cards.len(),
+                duration_ms: synthesis_duration,
+            });
+        }
 
         Ok((cards, tokens))
     }
@@ -935,11 +1289,37 @@ fn parse_briefing_response(response: &str) -> Result<Vec<BriefingCard>, String> 
         response
     };
 
-    // Parse JSON
-    let briefing_response: BriefingResponse = serde_json::from_str(json_str)
-        .map_err(|e| format!("Failed to parse briefing JSON: {}. Response: {}", e, json_str))?;
+    // Parse JSON - if it fails, try to provide helpful error message
+    match serde_json::from_str::<BriefingResponse>(json_str) {
+        Ok(briefing_response) => Ok(briefing_response.cards),
+        Err(e) => {
+            // Check if response looks truncated (EOF errors)
+            let error_msg = e.to_string();
+            if error_msg.contains("EOF") {
+                // Try to fix truncated JSON by closing the array and object
+                let fixed_attempt = format!("{}\n]\n}}", json_str.trim_end_matches(','));
+                if let Ok(briefing_response) = serde_json::from_str::<BriefingResponse>(&fixed_attempt) {
+                    warn!("Recovered {} cards from truncated response", briefing_response.cards.len());
+                    return Ok(briefing_response.cards);
+                }
 
-    Ok(briefing_response.cards)
+                Err(format!(
+                    "Response was truncated (likely hit max_tokens limit). Increase max_tokens in synthesis call. \
+                    Error: {}. Response length: {} chars. Last 200 chars: ...{}",
+                    error_msg,
+                    json_str.len(),
+                    &json_str[json_str.len().saturating_sub(200)..]
+                ))
+            } else {
+                Err(format!(
+                    "Failed to parse briefing JSON: {}. Response length: {} chars. First 500 chars: {}...",
+                    error_msg,
+                    json_str.len(),
+                    &json_str[..json_str.len().min(500)]
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -948,7 +1328,7 @@ mod tests {
 
     #[test]
     fn test_parse_briefing_response() {
-        let response = r#"{"cards": [{"title": "Test", "summary": "Test summary", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
+        let response = r#"{"cards": [{"title": "Test", "summary": "Test summary", "detailed_content": "Detailed test content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].title, "Test");
@@ -957,7 +1337,7 @@ mod tests {
     #[test]
     fn test_parse_briefing_response_with_markdown() {
         let response = r#"```json
-{"cards": [{"title": "Test", "summary": "Test summary", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}
+{"cards": [{"title": "Test", "summary": "Test summary", "detailed_content": "Detailed test content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}
 ```"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 1);
@@ -966,9 +1346,9 @@ mod tests {
     #[test]
     fn test_parse_briefing_response_multiple_cards() {
         let response = r#"{"cards": [
-            {"title": "Card 1", "summary": "Summary 1", "sources": ["https://example.com"], "suggested_next": "Read more", "relevance": "high", "topic": "Topic A"},
-            {"title": "Card 2", "summary": "Summary 2", "sources": [], "suggested_next": null, "relevance": "medium", "topic": "Topic B"},
-            {"title": "Card 3", "summary": "Summary 3", "sources": ["https://source1.com", "https://source2.com"], "suggested_next": "Follow up", "relevance": "low", "topic": "Topic A"}
+            {"title": "Card 1", "summary": "Summary 1", "detailed_content": "Detailed content 1", "sources": ["https://example.com"], "suggested_next": "Read more", "relevance": "high", "topic": "Topic A"},
+            {"title": "Card 2", "summary": "Summary 2", "detailed_content": "Detailed content 2", "sources": [], "suggested_next": null, "relevance": "medium", "topic": "Topic B"},
+            {"title": "Card 3", "summary": "Summary 3", "detailed_content": "Detailed content 3", "sources": ["https://source1.com", "https://source2.com"], "suggested_next": "Follow up", "relevance": "low", "topic": "Topic A"}
         ]}"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 3);
@@ -983,7 +1363,7 @@ mod tests {
     fn test_parse_briefing_response_with_markdown_code_block() {
         let response = r#"Here is the briefing:
 ```json
-{"cards": [{"title": "AI Developments", "summary": "Major advances in AI", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Artificial Intelligence"}]}
+{"cards": [{"title": "AI Developments", "summary": "Major advances in AI", "detailed_content": "Detailed AI content", "sources": [], "suggested_next": null, "relevance": "high", "topic": "Artificial Intelligence"}]}
 ```
 That's the summary!"#;
         let cards = parse_briefing_response(response).unwrap();
@@ -1015,6 +1395,7 @@ That's the summary!"#;
             suggested_next: Some("Follow up action".to_string()),
             relevance: "high".to_string(),
             topic: "Test Topic".to_string(),
+            detailed_content: "Detailed test content".to_string(),
         };
 
         let json = serde_json::to_string(&card).unwrap();
@@ -1041,6 +1422,7 @@ That's the summary!"#;
                     suggested_next: None,
                     relevance: "high".to_string(),
                     topic: "Topic 1".to_string(),
+                    detailed_content: "Detailed content 1".to_string(),
                 }
             ],
             research_time_ms: 1500,
@@ -1075,7 +1457,7 @@ That's the summary!"#;
     #[tokio::test]
     async fn test_run_research_empty_topics() {
         let mut agent = ResearchAgent::new("test-api-key".to_string(), None);
-        let result = agent.run_research(vec![]).await;
+        let result = agent.run_research(vec![], None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));
     }

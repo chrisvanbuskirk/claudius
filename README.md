@@ -47,9 +47,25 @@ Claudius is a self-hosted, privacy-first research assistant. It:
 
 ## Screenshots
 
-| Home | Settings | Menu Bar |
-|:----:|:--------:|:--------:|
-| View daily briefings | Configure topics & schedule | Quick access popover |
+<p align="center">
+  <img src="screenshots/home.png" alt="Home - Daily Briefings" width="800">
+</p>
+<p align="center"><em>Home screen with daily briefing cards featuring glassmorphism design</em></p>
+
+<p align="center">
+  <img src="screenshots/topics.png" alt="Topics Configuration" width="800">
+</p>
+<p align="center"><em>Configure research topics with descriptions and enable/disable toggles</em></p>
+
+<p align="center">
+  <img src="screenshots/research_settings.png" alt="Research Settings" width="800">
+</p>
+<p align="center"><em>Research settings: schedule, model selection, and manual trigger</em></p>
+
+<p align="center">
+  <img src="screenshots/mcps.png" alt="MCP Servers" width="800">
+</p>
+<p align="center"><em>MCP server configuration for enhanced research capabilities</em></p>
 
 ## Project Structure
 
@@ -70,10 +86,9 @@ claudius/
 │       └── db.rs         # SQLite database layer
 └── ~/.claudius/       # Config & data (created at runtime)
     ├── .env              # API key (ANTHROPIC_API_KEY)
-    ├── topics.json
     ├── mcp-servers.json
-    ├── settings.json
-    └── claudius.db
+    ├── preferences.json
+    └── claudius.db       # SQLite: briefings, topics, feedback, logs
 ```
 
 ## Data Storage
@@ -83,10 +98,9 @@ All Claudius data is stored locally in `~/.claudius/`:
 | File | Contents |
 |------|----------|
 | `.env` | Your Anthropic API key (stored as `ANTHROPIC_API_KEY=sk-ant-...`) |
-| `topics.json` | Your configured research topics |
 | `mcp-servers.json` | MCP server configurations and API keys |
-| `settings.json` | App settings (schedule, model preferences, etc.) |
-| `claudius.db` | SQLite database with briefings, feedback, and research logs |
+| `preferences.json` | App settings (schedule, model preferences, etc.) |
+| `claudius.db` | SQLite database with briefings, topics, feedback, and research logs |
 
 **Note:** The `.env` file contains your API key in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
 
@@ -101,6 +115,44 @@ All Claudius data is stored locally in `~/.claudius/`:
 - npm >= 9.0.0
 - Rust (for Tauri development)
 - Anthropic API key
+
+## Recommended: MCP Servers for Enhanced Research
+
+**⚡ HIGHLY RECOMMENDED**: While Claudius works with just the Anthropic API key, adding MCP servers dramatically improves research quality by enabling real-time web search instead of relying solely on Claude's training data.
+
+### Top Recommendations
+
+| Server | Cost | Why Use It | Documentation |
+|--------|------|------------|---------------|
+| **Brave Search** | **Free tier available** | Real-time web search for current news, articles, and documentation | [Setup Guide](https://github.com/brave/brave-search-mcp-server) |
+| **Perplexity** | Pay-as-you-go | AI-powered search that validates and enriches research | [Setup Guide](https://docs.perplexity.ai/guides/mcp-server) |
+
+### How Research Works With MCP Servers
+
+**Without MCP servers**: Claude relies on training data (may be outdated) and can only fetch individual URLs you configure.
+
+**With Brave Search + Perplexity**: Claude actively searches the web for current information, discovers relevant URLs, and validates findings with AI search. This is especially critical for topics like:
+- Technology news and product launches
+- Software releases and updates
+- Industry trends and events
+- Recent research papers
+
+### Quick Setup
+
+1. **Get API Keys**:
+   - Brave Search: Sign up at https://brave.com/search/api/ (free tier: 2,000 queries/month)
+   - Perplexity: Sign up at https://www.perplexity.ai/settings/api (pay-as-you-go pricing)
+
+2. **Configure in Claudius**:
+   - Open Claudius Settings
+   - Navigate to "MCP Servers"
+   - Add your API keys for Brave Search and Perplexity
+   - Enable both servers
+   - Click "Save"
+
+3. **Run Research**: Your next research run will automatically use these search tools for up-to-date information.
+
+**Note**: The included example configuration at `mcp-servers.example.json` shows all available MCP servers, including GitHub, Fetch, and Memory servers.
 
 ## Quick Start
 
@@ -173,35 +225,31 @@ npm run build
 
 ## CLI Commands
 
+> **Note:** The CLI is under development and not yet functional. Use the desktop app for all features.
+
 ```bash
-# Interest management
-claudius interests add <topic>
+# Coming soon...
 claudius interests list
-claudius interests remove <topic>
-
-# Research
 claudius research --now
-claudius research --now --topic "Swift 6" --depth deep
-
-# Briefings
 claudius briefings list
-claudius briefings search "Swift"
-claudius briefings export <id> --format markdown
-
-# MCP Servers
-claudius mcp list
-claudius mcp add <name>
-claudius mcp enable <name>
-
-# Configuration
-claudius config show
-claudius config init
-claudius config set research.schedule "0 6 * * *"
 ```
 
 ## Claude Desktop Integration
 
-Claudius includes an MCP server that lets Claude Desktop access your briefings. Add it to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+> **Note:** This feature requires cloning the repo and building from source. It is not available with the standalone app download.
+
+Claudius includes an MCP server that lets Claude Desktop access your briefings.
+
+**Setup (requires Node.js):**
+
+1. Clone and build the repo:
+```bash
+git clone https://github.com/chrisvanbuskirk/claudius.git
+cd claudius
+npm install && npm run build
+```
+
+2. Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
@@ -231,14 +279,13 @@ Then ask Claude: "What did Claudius research today?" or "Search my briefings for
 
 | Component | Technology |
 |-----------|------------|
-| CLI | TypeScript, Commander.js |
-| Frontend | React 18, Vite, Tailwind CSS |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
 | Desktop | Tauri 2.0, Rust |
-| Database | SQLite (sql.js, rusqlite) |
-| Research Agent | Rust, Anthropic API (tool_use) |
+| Database | SQLite (rusqlite) |
+| Research Agent | Rust, Anthropic API (tool_use), reqwest |
 | MCP Client | Rust, JSON-RPC 2.0 over stdio |
 | MCP Server | TypeScript, @modelcontextprotocol/sdk |
-| Testing | Vitest, React Testing Library, Cargo Test |
+| Testing | Vitest, Cargo Test |
 | CI/CD | GitHub Actions |
 
 ## Research Agent Architecture
@@ -255,7 +302,7 @@ Claudius uses an agentic research system built in Rust that leverages Claude's `
 │  1. User triggers research (button click or scheduler)          │
 │                                                                 │
 │  2. Agent initializes:                                          │
-│     - Loads topics from ~/.claudius/topics.json                 │
+│     - Loads topics from SQLite database                         │
 │     - Connects to MCP servers from ~/.claudius/mcp-servers.json │
 │     - Discovers available tools (built-in + MCP)                │
 │                                                                 │
@@ -307,13 +354,9 @@ You can extend the agent's capabilities by adding MCP servers in Settings. When 
 4. Presents all tools (built-in + MCP) to Claude
 5. Routes Claude's tool calls to the appropriate handler
 
-A sample configuration is provided in [`mcp-servers.example.json`](mcp-servers.example.json). Copy it to your config directory:
+MCP servers are configured via the Settings page in the desktop app. A sample configuration is also provided in [`mcp-servers.example.json`](mcp-servers.example.json) for reference.
 
-```bash
-cp mcp-servers.example.json ~/.claudius/mcp-servers.json
-```
-
-**Pre-configured servers (disabled by default):**
+**Recommended MCP servers:**
 
 | Server | Package | API Key Required |
 |--------|---------|------------------|
@@ -321,13 +364,12 @@ cp mcp-servers.example.json ~/.claudius/mcp-servers.json
 | [Perplexity](https://docs.perplexity.ai/guides/mcp-server) | `@perplexity-ai/mcp-server` | Yes - `PERPLEXITY_API_KEY` |
 | [GitHub](https://github.com/modelcontextprotocol/servers) | `@modelcontextprotocol/server-github` | Yes - `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | [Fetch](https://www.npmjs.com/package/@modelcontextprotocol/server-fetch) | `@modelcontextprotocol/server-fetch` | No |
-| [Memory](https://www.npmjs.com/package/@modelcontextprotocol/server-memory) | `@modelcontextprotocol/server-memory` | No |
 
-**To enable a server:**
-1. Edit `~/.claudius/mcp-servers.json`
-2. Add your API key(s) to the `env` section
-3. Set `"enabled": true`
-4. Restart Claudius or run research
+**To add an MCP server:**
+1. Open Claudius Settings → MCP Servers
+2. Click "Add Server" and configure the command, args, and environment variables
+3. Enable the server and save
+4. Run research to use the new tools
 
 ## Contributing
 
