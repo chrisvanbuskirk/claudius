@@ -14,6 +14,28 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(dateStr);
 }
 
+// Check if a string is a valid URL
+function isValidUrl(str: string): boolean {
+  try {
+    new URL(str);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Get display text for a source (hostname if URL, otherwise the string itself)
+function getSourceDisplay(source: string): { href: string | null; text: string } {
+  if (isValidUrl(source)) {
+    try {
+      return { href: source, text: new URL(source).hostname };
+    } catch {
+      return { href: null, text: source };
+    }
+  }
+  return { href: null, text: source };
+}
+
 interface BriefingCardProps {
   briefing: Briefing;
   onThumbsUp: () => void;
@@ -111,19 +133,28 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             Sources ({sources.length})
           </h4>
           <ul className="space-y-1">
-            {sources.slice(0, expanded ? undefined : 3).map((source, idx) => (
-              <li key={idx}>
-                <a
-                  href={source}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  {new URL(source).hostname}
-                </a>
-              </li>
-            ))}
+            {sources.slice(0, expanded ? undefined : 3).map((source, idx) => {
+              const { href, text } = getSourceDisplay(source);
+              return (
+                <li key={idx}>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {text}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                      {text}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {sources.length > 3 && !expanded && (
             <button

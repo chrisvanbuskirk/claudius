@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, XCircle, Database, Brain, StopCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Database, Brain, StopCircle, X } from 'lucide-react';
 import type { ResearchProgressState } from '../hooks/useResearchProgress';
 import { useResearchReset } from '../hooks/useResearchReset';
 
@@ -9,8 +9,13 @@ interface ResearchProgressCardProps {
 }
 
 export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
-  const { cancelResearch } = useResearchReset();
+  const { cancelResearch, resetResearch } = useResearchReset();
   const [isCancelling, setIsCancelling] = useState(false);
+
+  // Handle dismiss button click (resets state to clear the card)
+  const handleDismiss = async () => {
+    await resetResearch();
+  };
 
   // Debug logging for synthesis phase
   useEffect(() => {
@@ -109,6 +114,15 @@ export function ResearchProgressCard({ progress }: ResearchProgressCardProps) {
               {isCancelling ? 'Cancelling...' : 'Cancel'}
             </button>
           </div>
+        )}
+        {progress.currentPhase === 'complete' && (
+          <button
+            onClick={handleDismiss}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
+            title="Dismiss"
+          >
+            <X className="w-5 h-5" />
+          </button>
         )}
       </div>
 
