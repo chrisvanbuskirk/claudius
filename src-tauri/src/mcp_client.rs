@@ -46,6 +46,7 @@ pub struct McpConnection {
 
 impl McpConnection {
     /// Get the available tools from this server.
+    #[allow(dead_code)]
     pub fn tools(&self) -> &[McpTool] {
         &self.tools
     }
@@ -261,6 +262,7 @@ impl McpClient {
     }
 
     /// Check if a tool is available.
+    #[allow(dead_code)]
     pub fn has_tool(&self, tool_name: &str) -> bool {
         self.tool_routes.contains_key(tool_name)
     }
@@ -367,12 +369,14 @@ impl McpClient {
 #[derive(Debug, Clone)]
 pub struct McpToolWithServer {
     pub server_name: String,
+    #[allow(dead_code)]
     pub server_id: String,
     pub tool: McpTool,
 }
 
 impl McpToolWithServer {
     /// Convert to Anthropic API tool format.
+    #[allow(dead_code)]
     pub fn to_anthropic_tool(&self) -> Value {
         json!({
             "name": self.tool.name,

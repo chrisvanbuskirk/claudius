@@ -1,6 +1,7 @@
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 use tracing::{info, warn, error};
+use std::process::Command;
 
 /// Send a notification that research is complete.
 pub fn notify_research_complete(
@@ -17,6 +18,17 @@ pub fn notify_research_complete(
         format!("{} new briefings ready!", count)
     };
 
+    // Check permission state first
+    match app.notification().permission_state() {
+        Ok(state) => {
+            info!("Notification permission state: {:?}", state);
+        }
+        Err(e) => {
+            warn!("Could not check notification permission: {}", e);
+        }
+    }
+
+    // Try Tauri notification first
     let mut builder = app.notification()
         .builder()
         .title(title)
@@ -28,14 +40,44 @@ pub fn notify_research_complete(
 
     match builder.show() {
         Ok(_) => {
-            info!("Notification sent successfully");
-            Ok(())
+            info!("Tauri notification sent successfully");
         }
         Err(e) => {
-            error!("Failed to send notification: {}", e);
-            Err(e.to_string())
+            warn!("Tauri notification failed: {}", e);
         }
     }
+
+    // Also try native macOS notification as fallback (more reliable in dev mode)
+    #[cfg(target_os = "macos")]
+    {
+        let sound_option = if enable_sound { "sound name \"Glass\"" } else { "" };
+        let script = format!(
+            r#"display notification "{}" with title "{}" {}"#,
+            body.replace("\"", "\\\""),
+            title.replace("\"", "\\\""),
+            sound_option
+        );
+
+        match Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    info!("Native macOS notification sent successfully");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Native macOS notification failed: {}", stderr);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to run osascript: {}", e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Send a notification for research errors.

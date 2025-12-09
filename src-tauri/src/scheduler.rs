@@ -30,6 +30,7 @@ impl Scheduler {
     }
 
     /// Get a clone of the app handle.
+    #[allow(dead_code)]
     pub async fn get_app_handle(&self) -> Option<AppHandle> {
         let app_handle_lock = self.app_handle.read().await;
         app_handle_lock.clone()
@@ -127,6 +128,7 @@ impl Scheduler {
     }
 
     /// Update the schedule with a new cron expression.
+    #[allow(dead_code)]
     pub async fn update_schedule(&self, cron_expr: &str) -> Result<(), String> {
         let current = self.current_schedule.read().await;
         if current.as_deref() == Some(cron_expr) {
@@ -171,6 +173,7 @@ impl Scheduler {
     }
 
     /// Get the next scheduled run time with full datetime.
+    #[allow(dead_code)]
     pub async fn get_next_run_datetime(&self) -> Option<chrono::DateTime<Local>> {
         let schedule_lock = self.current_schedule.read().await;
         if let Some(cron_str) = schedule_lock.as_ref() {

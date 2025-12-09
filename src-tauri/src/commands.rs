@@ -42,6 +42,8 @@ pub struct ResearchSettings {
     pub enable_notifications: bool,
     #[serde(default = "default_notification_sound")]
     pub notification_sound: bool,
+    #[serde(default)]
+    pub enable_web_search: bool,
 }
 
 fn default_notification_sound() -> bool {
@@ -125,6 +127,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             max_sources_per_topic: 10,
             enable_notifications: true,
             notification_sound: true,
+            enable_web_search: false,
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -362,7 +365,9 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     struct StateGuard;
     impl Drop for StateGuard {
         fn drop(&mut self) {
-            research_state::set_stopped();
+            if let Err(e) = research_state::set_stopped() {
+                tracing::error!("Failed to clear research state in guard: {}", e);
+            }
         }
     }
     let _guard = StateGuard;
@@ -375,6 +380,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         max_sources_per_topic: 10,
         enable_notifications: true,
         notification_sound: true,
+        enable_web_search: false,
     });
 
     // Get API key from file-based storage
@@ -432,7 +438,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     research_state::set_phase("researching");
 
     // Create research agent and set cancellation token
-    let mut agent = ResearchAgent::new(api_key, Some(settings.model));
+    let mut agent = ResearchAgent::new(api_key, Some(settings.model.clone()), settings.enable_web_search);
     agent.set_cancellation_token(cancellation_token);
 
     let result = match agent.run_research(topics, Some(app.clone())).await {
@@ -484,7 +490,9 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     );
 
     // Clear research state
-    research_state::set_stopped();
+    if let Err(e) = research_state::set_stopped() {
+        tracing::error!("Failed to clear research state: {}", e);
+    }
 
     // Emit research:completed event after successful save
     let _ = app.emit("research:completed", serde_json::json!({
@@ -519,6 +527,7 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
         max_sources_per_topic: 10,
         enable_notifications: true,
         notification_sound: true,
+        enable_web_search: false,
     });
 
     // Get API key from file-based storage
@@ -549,7 +558,7 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
     tracing::info!("Researching {} topics: {:?}", topics.len(), topics);
 
     // Create research agent and run research
-    let mut agent = ResearchAgent::new(api_key, Some(settings.model));
+    let mut agent = ResearchAgent::new(api_key, Some(settings.model.clone()), settings.enable_web_search);
     let result = agent.run_research(topics, None).await?;
 
     // Save to database
@@ -583,28 +592,6 @@ pub async fn trigger_research_no_notify() -> Result<String, String> {
         result.cards.len(),
         result.research_time_ms
     ))
-}
-
-fn save_briefing_to_db(briefing: &serde_json::Value) -> Result<(), String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
-
-    let title = briefing.get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Daily Briefing");
-
-    let cards = briefing.get("cards")
-        .map(|v| serde_json::to_string(v).unwrap_or_default())
-        .unwrap_or_else(|| "[]".to_string());
-
-    let today = Local::now().format("%Y-%m-%d").to_string();
-
-    conn.execute(
-        "INSERT INTO briefings (date, title, cards) VALUES (?1, ?2, ?3)",
-        rusqlite::params![today, title, cards],
-    ).map_err(|e| format!("Failed to insert briefing: {}", e))?;
-
-    Ok(())
 }
 
 // ============================================================================
@@ -784,6 +771,20 @@ pub fn get_settings() -> Result<ResearchSettings, String> {
 pub fn update_settings(settings: ResearchSettings) -> Result<ResearchSettings, String> {
     write_settings(&settings)?;
     Ok(settings)
+}
+
+// ============================================================================
+// Notification commands
+// ============================================================================
+
+/// Request notification permission from the OS
+#[tauri::command]
+pub async fn request_notification_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    use crate::notifications::check_notification_permission;
+    tracing::info!("Requesting notification permission...");
+    let result = check_notification_permission(&app).await;
+    tracing::info!("Notification permission result: {}", result);
+    Ok(result)
 }
 
 // ============================================================================

@@ -13,6 +13,7 @@
     "notification:allow-notify",
     "notification:allow-request-permission",
     "notification:allow-is-permission-granted",
+    "notification:allow-permission-state",
     "positioner:default",
     "positioner:allow-move-window",
     "global-shortcut:default",

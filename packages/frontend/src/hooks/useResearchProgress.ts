@@ -12,6 +12,7 @@ import type {
   CancelledEvent,
   ResetEvent,
   HeartbeatEvent,
+  WebSearchEvent,
 } from '../types/research-events';
 
 // Phase-specific timeouts (in milliseconds)
@@ -315,6 +316,20 @@ export function useResearchProgress() {
       listen<HeartbeatEvent>('research:heartbeat', (event) => {
         if (!mounted) return;
         console.log('Research heartbeat:', event.payload.message);
+        updateLastEventTime();
+      })
+    );
+
+    // Web search - logs when Claude uses built-in web search
+    unlistenPromises.push(
+      listen<WebSearchEvent>('research:web_search', (event) => {
+        if (!mounted) return;
+        const { topic_name, search_query, status } = event.payload;
+        if (status === 'started') {
+          console.log(`🔍 Web search started for "${topic_name}"${search_query ? `: "${search_query}"` : ''}`);
+        } else {
+          console.log(`✅ Web search completed for "${topic_name}"`);
+        }
         updateLastEventTime();
       })
     );

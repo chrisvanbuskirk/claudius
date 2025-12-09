@@ -58,6 +58,8 @@ fn main() {
             // Settings commands
             commands::get_settings,
             commands::update_settings,
+            // Notification commands
+            commands::request_notification_permission,
             // API Key commands (stored securely in OS keychain)
             commands::get_api_key,
             commands::set_api_key,

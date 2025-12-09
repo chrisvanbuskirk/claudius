@@ -154,6 +154,28 @@ All Claudius data is stored locally in `~/.claudius/`:
 
 **Note**: The included example configuration at `mcp-servers.example.json` shows all available MCP servers, including GitHub, Fetch, and Memory servers.
 
+### Alternative: Claude Web Search
+
+Claude also offers a **built-in web search tool** that doesn't require any MCP server setup. This can be enabled directly in Settings.
+
+| Option | Cost | Setup Required |
+|--------|------|----------------|
+| **Claude Web Search** | $0.01 per search | None - built-in |
+| **Brave Search MCP** | Free tier (2,000/month) | MCP server config |
+| **Perplexity MCP** | Pay-as-you-go | MCP server config |
+
+**To enable Claude Web Search:**
+1. Open Claudius Settings → Research
+2. Toggle "Enable Claude Web Search"
+3. Run research - Claude will automatically use web search when needed
+
+**Cost Considerations:**
+- Each web search costs approximately $0.01
+- A typical research session may use 3-10 searches per topic
+- For heavy usage, consider using Brave Search MCP (free tier: 2,000 queries/month)
+
+You can use Claude Web Search alongside MCP servers - Claude will intelligently choose the best tool for each query.
+
 ## Quick Start
 
 ### For End Users
