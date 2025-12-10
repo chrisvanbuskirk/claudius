@@ -7,6 +7,7 @@ use colored::Colorize;
 use comfy_table::{Table, ContentArrangement, presets::UTF8_FULL};
 use chrono::Utc;
 use uuid::Uuid;
+use scopeguard::defer;
 
 use claudius::{
     db, research_state,
@@ -702,6 +703,13 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             let _cancellation_token = research_state::set_running("starting")
                 .map_err(|e| format!("Cannot start research: {}", e))?;
 
+            // RAII guard: ensure cleanup even if we panic or return early
+            defer! {
+                if let Err(e) = research_state::set_stopped() {
+                    eprintln!("{} Failed to reset research state: {}", "Warning:".yellow(), e);
+                }
+            }
+
             // Create research agent and run in background for progress tracking
             let mut agent = ResearchAgent::new(
                 api_key,
@@ -748,10 +756,7 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
 
             let duration = start.elapsed();
 
-            // Always stop the research state, even on error
-            if let Err(e) = research_state::set_stopped() {
-                eprintln!("{} Failed to reset research state: {}", "Warning:".yellow(), e);
-            }
+            // Note: cleanup is handled by defer! guard above (panic-safe)
 
             // Now handle the result
             let result = research_result?;

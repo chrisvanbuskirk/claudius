@@ -53,6 +53,7 @@ lazy_static = "1"
 clap = { version = "4", features = ["derive"] }
 comfy-table = "7"
 colored = "2"
+scopeguard = "1"
 
 [features]
 default = ["custom-protocol"]
