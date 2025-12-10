@@ -698,6 +698,10 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 println!();
             }
 
+            // Set running state BEFORE spawning to prevent race conditions
+            let _cancellation_token = research_state::set_running("starting")
+                .map_err(|e| format!("Cannot start research: {}", e))?;
+
             // Create research agent and run in background for progress tracking
             let mut agent = ResearchAgent::new(
                 api_key,
@@ -737,11 +741,20 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 }
             }
 
-            // Get the result
-            let result = research_handle.await
-                .map_err(|e| format!("Research task failed: {}", e))?
-                .map_err(|e| e)?;
+            // Get the result - ensure cleanup happens regardless of success/failure
+            let research_result = research_handle.await
+                .map_err(|e| format!("Research task failed: {}", e))
+                .and_then(|r| r.map_err(|e| e));
+
             let duration = start.elapsed();
+
+            // Always stop the research state, even on error
+            if let Err(e) = research_state::set_stopped() {
+                eprintln!("{} Failed to reset research state: {}", "Warning:".yellow(), e);
+            }
+
+            // Now handle the result
+            let result = research_result?;
 
             // Save to database
             let cards_json = serde_json::to_string(&result.cards)
