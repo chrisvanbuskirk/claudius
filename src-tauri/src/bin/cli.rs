@@ -19,6 +19,13 @@ use claudius::{
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Helper to safely serialize JSON for output. Returns error JSON if serialization fails.
+fn to_json<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|e| {
+        format!("{{\"error\": \"JSON serialization failed: {}\"}}", e)
+    })
+}
+
 #[derive(Parser)]
 #[command(
     name = "claudius",
@@ -281,9 +288,9 @@ async fn handle_topics(action: TopicAction, json: bool) -> Result<(), String> {
             let topics = db::get_all_topics(&conn)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "topics": topics
-                })).unwrap());
+                })));
             } else if topics.is_empty() {
                 println!("{}", "No topics configured.".yellow());
                 println!("Add a topic with: claudius topics add <name>");
@@ -329,7 +336,7 @@ async fn handle_topics(action: TopicAction, json: bool) -> Result<(), String> {
             db::insert_topic(&conn, &topic, sort_order)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&topic).unwrap());
+                println!("{}", to_json(&topic));
             } else {
                 println!("{} Added topic '{}'", "✓".green(), name);
             }
@@ -353,7 +360,7 @@ async fn handle_topics(action: TopicAction, json: bool) -> Result<(), String> {
             db::update_topic(&conn, &topic)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&topic).unwrap());
+                println!("{}", to_json(&topic));
             } else {
                 println!("{} Enabled topic '{}'", "✓".green(), topic.name);
             }
@@ -366,7 +373,7 @@ async fn handle_topics(action: TopicAction, json: bool) -> Result<(), String> {
             db::update_topic(&conn, &topic)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&topic).unwrap());
+                println!("{}", to_json(&topic));
             } else {
                 println!("{} Disabled topic '{}'", "✓".green(), topic.name);
             }
@@ -421,9 +428,9 @@ async fn handle_briefings(action: BriefingAction, json: bool) -> Result<(), Stri
                         "research_time_ms": b.research_time_ms,
                     })
                 }).collect();
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "briefings": output
-                })).unwrap());
+                })));
             } else if briefings.is_empty() {
                 println!("{}", "No briefings found.".yellow());
                 println!("Run research with: claudius research now");
@@ -457,7 +464,7 @@ async fn handle_briefings(action: BriefingAction, json: bool) -> Result<(), Stri
                 .map_err(|e| format!("Failed to parse cards: {}", e))?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "id": briefing.id,
                     "date": briefing.date,
                     "title": briefing.title,
@@ -465,7 +472,7 @@ async fn handle_briefings(action: BriefingAction, json: bool) -> Result<(), Stri
                     "model_used": briefing.model_used,
                     "research_time_ms": briefing.research_time_ms,
                     "total_tokens": briefing.total_tokens,
-                })).unwrap());
+                })));
             } else {
                 println!("{}", briefing.title.bold());
                 println!("{}", briefing.date.dimmed());
@@ -505,10 +512,10 @@ async fn handle_briefings(action: BriefingAction, json: bool) -> Result<(), Stri
             let briefings = search_briefings(&conn, &query)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "query": query,
                     "results": briefings,
-                })).unwrap());
+                })));
             } else if briefings.is_empty() {
                 println!("{}", format!("No briefings found matching '{}'", query).yellow());
             } else {
@@ -530,12 +537,12 @@ async fn handle_briefings(action: BriefingAction, json: bool) -> Result<(), Stri
 
             match format.as_str() {
                 "json" => {
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    println!("{}", to_json(&serde_json::json!({
                         "id": briefing.id,
                         "date": briefing.date,
                         "title": briefing.title,
                         "cards": cards,
-                    })).unwrap());
+                    })));
                 }
                 "markdown" | "md" => {
                     println!("# {}", briefing.title);
@@ -754,14 +761,14 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             ).map_err(|e| format!("Failed to save briefing: {}", e))?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "status": "completed",
                     "title": result.title,
                     "cards": result.cards.len(),
                     "duration_ms": duration.as_millis(),
                     "model": result.model_used,
                     "tokens": result.total_tokens,
-                })).unwrap());
+                })));
             } else {
                 println!("{} Research completed!", "✓".green().bold());
                 println!();
@@ -780,12 +787,12 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 let started_at = state.started_at.map(|t| {
                     chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
                 });
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "is_running": state.is_running,
                     "current_phase": state.current_phase,
                     "started_at": started_at,
                     "is_cancelled": research_state::is_cancelled(),
-                })).unwrap());
+                })));
             } else if state.is_running {
                 println!("{} Research is running", "●".yellow());
                 println!("  Phase: {}", state.current_phase.cyan());
@@ -810,9 +817,9 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             };
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "logs": logs
-                })).unwrap());
+                })));
             } else if logs.is_empty() {
                 println!("{}", "No research logs found.".dimmed());
             } else {
@@ -865,9 +872,9 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
             let config = read_mcp_servers()?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "servers": config.servers
-                })).unwrap());
+                })));
             } else if config.servers.is_empty() {
                 println!("{}", "No MCP servers configured.".yellow());
                 println!("Add a server with: claudius mcp add <name> --command <cmd>");
@@ -932,7 +939,7 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
             write_mcp_servers(&config)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&server).unwrap());
+                println!("{}", to_json(&server));
             } else {
                 println!("{} Added MCP server '{}'", "✓".green(), name);
             }
@@ -962,7 +969,7 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
             write_mcp_servers(&config)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&server_clone).unwrap());
+                println!("{}", to_json(&server_clone));
             } else {
                 println!("{} Enabled MCP server '{}'", "✓".green(), name);
             }
@@ -977,7 +984,7 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
             write_mcp_servers(&config)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&server_clone).unwrap());
+                println!("{}", to_json(&server_clone));
             } else {
                 println!("{} Disabled MCP server '{}'", "✓".green(), name);
             }
@@ -1005,11 +1012,11 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
                     let tools = client.get_all_tools();
 
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                        println!("{}", to_json(&serde_json::json!({
                             "status": "success",
                             "server": server.name,
                             "tools": tools.len(),
-                        })).unwrap());
+                        })));
                     } else {
                         println!("{} Connection successful!", "✓".green());
                         println!("  Available tools: {}", tools.len());
@@ -1020,11 +1027,11 @@ async fn handle_mcp(action: McpAction, json: bool) -> Result<(), String> {
                 }
                 Err(e) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                        println!("{}", to_json(&serde_json::json!({
                             "status": "error",
                             "server": server.name,
                             "error": e,
-                        })).unwrap());
+                        })));
                     } else {
                         println!("{} Connection failed: {}", "✗".red(), e);
                     }
@@ -1070,11 +1077,11 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
             let config_dir = get_config_dir();
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                println!("{}", to_json(&serde_json::json!({
                     "config_dir": config_dir.display().to_string(),
                     "api_key_set": has_key,
                     "settings": settings,
-                })).unwrap());
+                })));
             } else {
                 println!("{}", "Configuration".bold());
                 println!();
