@@ -96,7 +96,8 @@ export function useBriefings() {
     setLoading(true);
     setError(null);
     try {
-      const result = await safeInvoke<Briefing[]>('search_briefings', { query: filters.search_query || '' });
+      const query = filters.search_query || '';
+      const result = await safeInvoke<Briefing[]>('search_briefings', { query });
       setBriefings(result);
       return result;
     } catch (err) {
