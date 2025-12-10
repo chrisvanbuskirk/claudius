@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
@@ -1387,6 +1387,151 @@ function ResearchSettingsTab() {
             Run Research Now
           </MagneticButton>
         </div>
+
+        {/* CLI Installation Section */}
+        <CliInstallSection />
+      </div>
+    </div>
+  );
+}
+
+interface CliStatus {
+  installed: boolean;
+  path?: string;
+}
+
+function CliInstallSection() {
+  const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkCliStatus = async () => {
+    try {
+      const status = await invoke<CliStatus>('get_cli_status');
+      setCliStatus(status);
+    } catch (err) {
+      console.error('Failed to check CLI status:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkCliStatus();
+  }, []);
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      const result = await invoke<{ success: boolean; message: string; path?: string }>('install_cli');
+      if (result.success) {
+        await checkCliStatus();
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleUninstall = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      const result = await invoke<{ success: boolean; message: string }>('uninstall_cli');
+      if (result.success) {
+        await checkCliStatus();
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 mb-3">
+          <Terminal className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <h3 className="font-medium text-gray-900 dark:text-white">Command Line Interface</h3>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking CLI status...
+          </div>
+        ) : cliStatus?.installed ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+              <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">CLI Installed</p>
+                <p className="text-xs text-green-600 dark:text-green-400 font-mono">{cliStatus.path}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                You can now use <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded font-mono">claudius</code> from your terminal:
+              </p>
+              <div className="p-2 bg-gray-900 dark:bg-black rounded-lg font-mono text-xs text-gray-300 space-y-1">
+                <p>$ claudius topics list</p>
+                <p>$ claudius research --now</p>
+                <p>$ claudius briefings list --json</p>
+              </div>
+            </div>
+            <div className="pt-2">
+              <button
+                onClick={handleUninstall}
+                disabled={installing}
+                className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex items-center gap-1"
+              >
+                {installing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3" />
+                )}
+                Uninstall CLI
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Install the command-line interface to run Claudius from your terminal.
+            </p>
+            <MagneticButton
+              onClick={handleInstall}
+              disabled={installing}
+              variant="secondary"
+              className="flex items-center gap-2"
+            >
+              {installing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Terminal className="w-4 h-4" />
+              )}
+              Install CLI
+            </MagneticButton>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              This will create a symlink at <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded font-mono">/usr/local/bin/claudius</code>.
+              Admin password required.
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
       </div>
     </div>
   );

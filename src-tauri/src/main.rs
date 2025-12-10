@@ -90,6 +90,10 @@ fn main() {
             commands::cancel_research,
             commands::reset_research_state,
             commands::get_research_status,
+            // CLI installation commands
+            commands::get_cli_status,
+            commands::install_cli,
+            commands::uninstall_cli,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

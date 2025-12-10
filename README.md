@@ -247,14 +247,122 @@ npm run build
 
 ## CLI Commands
 
-> **Note:** The CLI is under development and not yet functional. Use the desktop app for all features.
+The Rust CLI provides full access to Claudius features from the terminal. Install it from Settings → "Install CLI" in the desktop app, which creates a symlink to `/usr/local/bin/claudius`.
 
+### Topics
 ```bash
-# Coming soon...
-claudius interests list
-claudius research --now
-claudius briefings list
+claudius topics list              # List all research topics
+claudius topics add "AI News"     # Add a new topic
+claudius topics add "Rust" --description "Rust programming language updates"
+claudius topics remove <id|name>  # Remove a topic
+claudius topics enable <id|name>  # Enable a topic
+claudius topics disable <id|name> # Disable a topic
 ```
+
+### Research
+```bash
+claudius research now             # Run research immediately (shows live progress)
+claudius research now --topic "AI News"  # Research specific topic only
+claudius research now --verbose   # Show topics being researched
+claudius research status          # Check if research is running
+claudius research logs            # View recent research logs
+claudius research logs --errors   # View only error logs
+```
+
+### Briefings
+```bash
+claudius briefings list           # List recent briefings
+claudius briefings list --limit 5 # Limit results
+claudius briefings show <id>      # Show full briefing with cards
+claudius briefings search "Claude" # Search briefings
+claudius briefings export <id>    # Export as markdown
+claudius briefings export <id> --format json  # Export as JSON
+```
+
+### MCP Servers
+```bash
+claudius mcp list                 # List configured MCP servers
+claudius mcp add "Brave" --command "npx" --args "-y @anthropic/mcp-server-brave-search"
+claudius mcp remove <id|name>     # Remove server
+claudius mcp enable <id|name>     # Enable server
+claudius mcp disable <id|name>    # Disable server
+claudius mcp test <name>          # Test server connection
+```
+
+### Configuration
+```bash
+claudius config show              # Show all settings
+claudius config set model claude-sonnet-4-5-20250929  # Change model
+claudius config api-key show      # Check if API key is set
+claudius config api-key set <key> # Set API key
+claudius config api-key clear     # Remove API key
+```
+
+### JSON Output
+Add `--json` to any command for machine-readable output:
+```bash
+claudius topics list --json
+claudius briefings list --json
+claudius research status --json
+```
+
+### Automation & Scheduling
+
+The CLI enables flexible scheduling without keeping the app running. Your briefings are saved to the shared database, so they appear in the desktop app whenever you open it.
+
+**Cron (Unix/macOS/Linux):**
+```bash
+# Edit crontab
+crontab -e
+
+# Run research at 6:30 AM every weekday
+30 6 * * 1-5 /usr/local/bin/claudius research now
+
+# Run twice daily (morning and evening)
+30 6,18 * * * /usr/local/bin/claudius research now
+
+# Run every 4 hours
+0 */4 * * * /usr/local/bin/claudius research now
+```
+
+**macOS Shortcuts:**
+1. Open Shortcuts app
+2. Create new shortcut with "Run Shell Script" action
+3. Enter: `/usr/local/bin/claudius research now`
+4. Trigger via: time of day, Focus mode, location, or manually from menu bar
+
+**launchd (macOS - survives reboots):**
+```xml
+<!-- Save as ~/Library/LaunchAgents/com.claudius.research.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claudius.research</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/claudius</string>
+        <string>research</string>
+        <string>now</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+</dict>
+</plist>
+```
+Then load with: `launchctl load ~/Library/LaunchAgents/com.claudius.research.plist`
+
+**Why use CLI scheduling instead of the built-in scheduler?**
+- No need to keep the app running 24/7
+- Works even when your Mac wakes from sleep
+- More flexible triggers (location, Focus modes, events)
+- Can run on headless servers or in CI/CD pipelines
 
 ## Claude Desktop Integration
 

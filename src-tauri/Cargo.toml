@@ -6,6 +6,22 @@ authors = ["Chris Van Buskirk"]
 license = "MIT"
 repository = "https://github.com/chrisvanbuskirk/claudius"
 edition = "2021"
+default-run = "claudius-tauri"
+
+# Library for shared code (used by both Tauri app and CLI)
+[lib]
+name = "claudius"
+path = "src/lib.rs"
+
+# Tauri desktop application
+[[bin]]
+name = "claudius-tauri"
+path = "src/main.rs"
+
+# Command-line interface
+[[bin]]
+name = "claudius"
+path = "src/bin/cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -32,6 +48,11 @@ reqwest = { version = "0.12", features = ["json"] }
 regex = "1"
 image = "0.25"
 lazy_static = "1"
+
+# CLI dependencies
+clap = { version = "4", features = ["derive"] }
+comfy-table = "7"
+colored = "2"
 
 [features]
 default = ["custom-protocol"]

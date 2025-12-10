@@ -1127,3 +1127,273 @@ pub fn get_research_status() -> Result<serde_json::Value, String> {
         "is_cancelled": research_state::is_cancelled(),
     }))
 }
+
+// ============================================================================
+// CLI Installation commands
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct CliInstallResult {
+    pub success: bool,
+    pub message: String,
+    pub path: Option<String>,
+}
+
+/// Check if CLI is installed and return its path
+#[tauri::command]
+pub fn get_cli_status() -> Result<serde_json::Value, String> {
+    let install_path = PathBuf::from("/usr/local/bin/claudius");
+    let is_installed = install_path.exists();
+
+    // Check if it points to our binary
+    let is_valid = if is_installed {
+        // Read the symlink target to verify it's our binary
+        match std::fs::read_link(&install_path) {
+            Ok(target) => target.to_string_lossy().contains("Claudius") || target.to_string_lossy().contains("claudius"),
+            Err(_) => false, // Could be a regular file, not a symlink
+        }
+    } else {
+        false
+    };
+
+    Ok(serde_json::json!({
+        "installed": is_installed && is_valid,
+        "path": if is_installed { Some(install_path.to_string_lossy().to_string()) } else { None },
+    }))
+}
+
+/// Install CLI by creating a symlink to /usr/local/bin/claudius
+/// This requires admin privileges on macOS, so we use osascript
+#[tauri::command]
+pub async fn install_cli() -> Result<CliInstallResult, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Get the path to the CLI binary in the app bundle
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+
+        // The CLI binary should be next to the main binary in the MacOS folder
+        let cli_path = exe_path.parent()
+            .ok_or("Failed to get parent directory")?
+            .join("claudius");
+
+        // Check if CLI binary exists
+        if !cli_path.exists() {
+            return Err(format!(
+                "CLI binary not found at {:?}. Make sure the app was built with the CLI included.",
+                cli_path
+            ));
+        }
+
+        let target = "/usr/local/bin/claudius";
+
+        // Create /usr/local/bin if it doesn't exist (requires sudo)
+        let script = format!(
+            r#"do shell script "mkdir -p /usr/local/bin && ln -sf '{}' '{}'" with administrator privileges"#,
+            cli_path.display(),
+            target
+        );
+
+        tracing::info!("Installing CLI from {:?} to {}", cli_path, target);
+
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("Failed to execute osascript: {}", e))?;
+
+        if output.status.success() {
+            tracing::info!("CLI installed successfully to {}", target);
+            Ok(CliInstallResult {
+                success: true,
+                message: format!("CLI installed successfully to {}", target),
+                path: Some(target.to_string()),
+            })
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // User cancelled the admin prompt
+            if stderr.contains("User canceled") || stderr.contains("-128") {
+                return Err("Installation cancelled by user".to_string());
+            }
+            Err(format!("Failed to install CLI: {}", stderr))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+
+        let cli_path = exe_path.parent()
+            .ok_or("Failed to get parent directory")?
+            .join("claudius");
+
+        if !cli_path.exists() {
+            return Err(format!(
+                "CLI binary not found at {:?}. Make sure the app was built with the CLI included.",
+                cli_path
+            ));
+        }
+
+        let target = "/usr/local/bin/claudius";
+
+        // Try pkexec for graphical sudo prompt on Linux
+        let output = std::process::Command::new("pkexec")
+            .args(["ln", "-sf", &cli_path.to_string_lossy(), target])
+            .output()
+            .map_err(|e| format!("Failed to execute pkexec: {}", e))?;
+
+        if output.status.success() {
+            Ok(CliInstallResult {
+                success: true,
+                message: format!("CLI installed successfully to {}", target),
+                path: Some(target.to_string()),
+            })
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Failed to install CLI: {}", stderr))
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, we add the app directory to PATH or create a batch file
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+
+        let cli_path = exe_path.parent()
+            .ok_or("Failed to get parent directory")?
+            .join("claudius.exe");
+
+        if !cli_path.exists() {
+            return Err(format!(
+                "CLI binary not found at {:?}. Make sure the app was built with the CLI included.",
+                cli_path
+            ));
+        }
+
+        // Create a .cmd wrapper in a location that's typically in PATH
+        let local_app_data = std::env::var("LOCALAPPDATA")
+            .map_err(|_| "Could not find LOCALAPPDATA")?;
+        let bin_dir = PathBuf::from(&local_app_data).join("Claudius").join("bin");
+
+        std::fs::create_dir_all(&bin_dir)
+            .map_err(|e| format!("Failed to create bin directory: {}", e))?;
+
+        let cmd_path = bin_dir.join("claudius.cmd");
+        let cmd_content = format!("@echo off\n\"{}\" %*\n", cli_path.display());
+
+        std::fs::write(&cmd_path, cmd_content)
+            .map_err(|e| format!("Failed to write cmd wrapper: {}", e))?;
+
+        Ok(CliInstallResult {
+            success: true,
+            message: format!(
+                "CLI wrapper created at {}. Add {} to your PATH to use 'claudius' command.",
+                cmd_path.display(),
+                bin_dir.display()
+            ),
+            path: Some(cmd_path.to_string_lossy().to_string()),
+        })
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        Err("CLI installation is not supported on this platform".to_string())
+    }
+}
+
+/// Uninstall CLI by removing the symlink
+#[tauri::command]
+pub async fn uninstall_cli() -> Result<CliInstallResult, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = "/usr/local/bin/claudius";
+
+        if !PathBuf::from(target).exists() {
+            return Ok(CliInstallResult {
+                success: true,
+                message: "CLI is not installed".to_string(),
+                path: None,
+            });
+        }
+
+        let script = format!(
+            r#"do shell script "rm -f '{}'" with administrator privileges"#,
+            target
+        );
+
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("Failed to execute osascript: {}", e))?;
+
+        if output.status.success() {
+            Ok(CliInstallResult {
+                success: true,
+                message: "CLI uninstalled successfully".to_string(),
+                path: None,
+            })
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("User canceled") || stderr.contains("-128") {
+                return Err("Uninstallation cancelled by user".to_string());
+            }
+            Err(format!("Failed to uninstall CLI: {}", stderr))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let target = "/usr/local/bin/claudius";
+
+        if !PathBuf::from(target).exists() {
+            return Ok(CliInstallResult {
+                success: true,
+                message: "CLI is not installed".to_string(),
+                path: None,
+            });
+        }
+
+        let output = std::process::Command::new("pkexec")
+            .args(["rm", "-f", target])
+            .output()
+            .map_err(|e| format!("Failed to execute pkexec: {}", e))?;
+
+        if output.status.success() {
+            Ok(CliInstallResult {
+                success: true,
+                message: "CLI uninstalled successfully".to_string(),
+                path: None,
+            })
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Failed to uninstall CLI: {}", stderr))
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let local_app_data = std::env::var("LOCALAPPDATA")
+            .map_err(|_| "Could not find LOCALAPPDATA")?;
+        let cmd_path = PathBuf::from(&local_app_data)
+            .join("Claudius")
+            .join("bin")
+            .join("claudius.cmd");
+
+        if cmd_path.exists() {
+            std::fs::remove_file(&cmd_path)
+                .map_err(|e| format!("Failed to remove cmd wrapper: {}", e))?;
+        }
+
+        Ok(CliInstallResult {
+            success: true,
+            message: "CLI uninstalled successfully".to_string(),
+            path: None,
+        })
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        Err("CLI uninstallation is not supported on this platform".to_string())
+    }
+}

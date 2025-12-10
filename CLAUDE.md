@@ -26,11 +26,14 @@ claudius/
 │   │   └── __tests__/       # Unit tests (75+ tests)
 │   ├── cli/                 # Command-line interface
 │   └── mcp-server/          # MCP server for Claude Desktop integration
-├── src-tauri/               # Rust backend (Tauri 2.0 + Research Agent)
+├── src-tauri/               # Rust backend (Tauri 2.0 + Research Agent + CLI)
 │   ├── src/
-│   │   ├── main.rs          # Entry point, app setup
+│   │   ├── lib.rs           # Shared library (db, research, mcp_client, config)
+│   │   ├── main.rs          # Tauri app entry point
+│   │   ├── bin/cli.rs       # CLI binary entry point
 │   │   ├── commands.rs      # Tauri commands (IPC)
 │   │   ├── research.rs      # Research agent (calls Anthropic API)
+│   │   ├── research_state.rs # Global research state (for CLI progress)
 │   │   ├── scheduler.rs     # Cron-based research scheduler
 │   │   ├── notifications.rs # Desktop notifications
 │   │   ├── tray.rs          # System tray integration
@@ -166,6 +169,67 @@ research:completed        → Full research session done
 **Synthesis Phase** (lines 1078-1113): After completing all topic research, the agent calls Claude again to synthesize all research content into cohesive briefing cards. This phase typically takes 60-90 seconds and now has dedicated progress events so users know synthesis is happening.
 
 - **Build**: npm workspaces monorepo
+
+## Rust CLI
+
+The CLI is a standalone Rust binary (`src-tauri/src/bin/cli.rs`) that shares code with the Tauri app via `lib.rs`. It provides full access to Claudius features without needing the GUI.
+
+### Architecture
+
+```
+Cargo.toml:
+  [lib]           → src/lib.rs (shared code: db, research, mcp_client, config)
+  [[bin]] claudius-tauri → src/main.rs (Tauri app)
+  [[bin]] claudius      → src/bin/cli.rs (CLI)
+```
+
+Both binaries share:
+- `research.rs` - Research agent (passes `app_handle: None` for CLI)
+- `research_state.rs` - Global state for progress tracking
+- `db.rs` - SQLite database operations
+- `mcp_client.rs` - MCP server connections
+- Config helpers (`read_api_key`, `read_settings`, etc.)
+
+### CLI Progress Feedback
+
+The CLI shows real-time progress during research by polling `research_state::get_state()`:
+
+```rust
+// research.rs sets phase at each step:
+research_state::set_phase("Starting research...");
+research_state::set_phase(&format!("Researching topic {}/{}: {}", i, total, topic));
+research_state::set_phase("Synthesizing briefing cards...");
+research_state::set_phase(&format!("Research complete: {} cards in {:.1}s", cards, secs));
+
+// cli.rs polls in a loop while research runs:
+loop {
+    let state = research_state::get_state();
+    if state.current_phase != last_phase {
+        print!("\r→ {}...", state.current_phase);
+    }
+    if research_handle.is_finished() { break; }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+}
+```
+
+### Installation
+
+The CLI is bundled in the app and installed via symlink:
+- **macOS**: `/usr/local/bin/claudius` → `/Applications/Claudius.app/Contents/MacOS/claudius`
+- Users install from Settings → "Install CLI"
+- Symlink means CLI auto-updates when app updates
+
+### Key Commands
+
+```bash
+claudius topics list          # Manage research topics
+claudius research now         # Run research (shows live progress)
+claudius briefings show <id>  # View briefing cards
+claudius mcp test <name>      # Test MCP server connection
+claudius config api-key set   # Set API key
+```
+
+All commands support `--json` for machine-readable output.
 
 ## Development Commands
 
@@ -340,3 +404,4 @@ GitHub Actions runs on push to `main`/`develop` and on PRs:
 4. **Build Tauri** - macOS (universal), Windows, Ubuntu
 
 Release workflow triggers on version tags (`v*`) and creates draft releases with installers.
+- DO NOT PUSH UPDATES TO THE MAIN BRANCH
