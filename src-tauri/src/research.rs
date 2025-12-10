@@ -5,6 +5,7 @@
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};
+use crate::research_state;
 use chrono::Datelike;
 use regex::Regex;
 use reqwest::Client;
@@ -596,7 +597,9 @@ impl ResearchAgent {
 
         Self {
             client: Client::builder()
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_secs(180)) // 3 min total request timeout
+                .connect_timeout(Duration::from_secs(30)) // 30s to establish connection
+                .pool_idle_timeout(Duration::from_secs(60)) // Close idle connections after 60s
                 .build()
                 .expect("Failed to build HTTP client"),
             api_key,
@@ -748,7 +751,8 @@ impl ResearchAgent {
             return Err("No topics provided for research".to_string());
         }
 
-        // Emit research:started event
+        // Emit research:started event and update phase
+        research_state::set_phase("Starting research...");
         if let Some(app) = &app_handle {
             let _ = app.emit("research:started", ResearchStartedEvent {
                 timestamp: get_timestamp(),
@@ -779,7 +783,8 @@ impl ResearchAgent {
 
             info!("Researching topic {}/{}: {}", i + 1, topics.len(), topic);
 
-            // Emit research:topic_started event
+            // Update phase and emit research:topic_started event
+            research_state::set_phase(&format!("Researching topic {}/{}: {}", i + 1, topics.len(), topic));
             if let Some(app) = &app_handle {
                 let _ = app.emit("research:topic_started", TopicStartedEvent {
                     timestamp: get_timestamp(),
@@ -854,7 +859,12 @@ impl ResearchAgent {
             result.total_tokens
         );
 
-        // Emit research:completed event
+        // Update phase and emit research:completed event
+        research_state::set_phase(&format!(
+            "Research complete: {} cards in {:.1}s",
+            result.cards.len(),
+            result.research_time_ms as f64 / 1000.0
+        ));
         if let Some(app) = &app_handle {
             let _ = app.emit("research:completed", CompletedEvent {
                 timestamp: get_timestamp(),
@@ -1336,7 +1346,8 @@ Return the JSON response now:"#,
             system: None,
         };
 
-        // Emit synthesis:started event
+        // Update phase and emit synthesis:started event
+        research_state::set_phase("Synthesizing briefing cards...");
         if let Some(app) = app_handle {
             let _ = app.emit("research:synthesis_started", SynthesisStartedEvent {
                 timestamp: get_timestamp(),
@@ -1364,7 +1375,8 @@ Return the JSON response now:"#,
 
         info!("Successfully generated {} briefing cards from synthesis", cards.len());
 
-        // Emit synthesis:completed event
+        // Update phase and emit synthesis:completed event
+        research_state::set_phase(&format!("Synthesis complete: {} cards", cards.len()));
         if let Some(app) = app_handle {
             let _ = app.emit("research:synthesis_completed", SynthesisCompletedEvent {
                 timestamp: get_timestamp(),

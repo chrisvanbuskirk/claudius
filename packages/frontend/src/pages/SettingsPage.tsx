@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
@@ -325,6 +325,279 @@ const MCP_PRESETS = [
   { name: 'Fetch', command: 'npx -y @anthropic/server-fetch', description: 'Fetch web content' },
 ];
 
+// Quick Setup servers for research - these are the recommended MCP servers
+interface QuickSetupServer {
+  id: string;
+  name: string;
+  description: string;
+  icon: 'Search' | 'Bot' | 'Github';
+  pricing: string;
+  apiKeyLabel: string;
+  apiKeyUrl: string;
+  apiKeyEnvVar: string;
+  command: string;
+  args: string[];
+  recommended?: boolean;
+}
+
+const QUICK_SETUP_SERVERS: QuickSetupServer[] = [
+  {
+    id: 'brave-search',
+    name: 'Brave Search',
+    description: 'Real-time web search for current news and articles',
+    icon: 'Search',
+    pricing: 'Free tier: 2,000/month',
+    apiKeyLabel: 'API Key',
+    apiKeyUrl: 'https://brave.com/search/api/',
+    apiKeyEnvVar: 'BRAVE_API_KEY',
+    command: 'npx',
+    args: ['-y', '@anthropic/server-brave-search'],
+    recommended: true,
+  },
+  {
+    id: 'perplexity',
+    name: 'Perplexity',
+    description: 'AI-powered search that validates and enriches research',
+    icon: 'Bot',
+    pricing: 'Pay-as-you-go',
+    apiKeyLabel: 'API Key',
+    apiKeyUrl: 'https://www.perplexity.ai/settings/api',
+    apiKeyEnvVar: 'PERPLEXITY_API_KEY',
+    command: 'npx',
+    args: ['-y', 'server-perplexity-ask'],
+    recommended: true,
+  },
+  {
+    id: 'github',
+    name: 'GitHub',
+    description: 'Search repositories, issues, and pull requests',
+    icon: 'Github',
+    pricing: 'Free',
+    apiKeyLabel: 'Personal Access Token',
+    apiKeyUrl: 'https://github.com/settings/tokens',
+    apiKeyEnvVar: 'GITHUB_TOKEN',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+    recommended: false,
+  },
+];
+
+// Icon component mapping for Quick Setup
+function QuickSetupIcon({ icon, className }: { icon: QuickSetupServer['icon']; className?: string }) {
+  switch (icon) {
+    case 'Search':
+      return <Search className={className} />;
+    case 'Bot':
+      return <Bot className={className} />;
+    case 'Github':
+      return <Github className={className} />;
+  }
+}
+
+// Quick Setup Card Component
+function QuickSetupCard({
+  server,
+  isAdded,
+  onAdd,
+}: {
+  server: QuickSetupServer;
+  isAdded: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <div className={`flex flex-col p-4 rounded-xl border transition-all ${
+      isAdded
+        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-700'
+    }`}>
+      <div className="flex items-start justify-between mb-2">
+        <div className={`p-2 rounded-lg ${
+          isAdded
+            ? 'bg-green-100 dark:bg-green-900/40'
+            : 'bg-primary-100 dark:bg-primary-900/40'
+        }`}>
+          <QuickSetupIcon
+            icon={server.icon}
+            className={`w-5 h-5 ${
+              isAdded
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-primary-600 dark:text-primary-400'
+            }`}
+          />
+        </div>
+        {server.recommended && !isAdded && (
+          <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+            <Sparkles className="w-3 h-3" />
+            Recommended
+          </span>
+        )}
+        {isAdded && (
+          <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+            <CheckCircle2 className="w-3 h-3" />
+            Added
+          </span>
+        )}
+      </div>
+
+      <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+        {server.name}
+      </h4>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 flex-1">
+        {server.description}
+      </p>
+      <p className="text-xs text-gray-500 dark:text-gray-500 mb-3">
+        {server.pricing}
+      </p>
+
+      {!isAdded && (
+        <button
+          onClick={onAdd}
+          className="w-full py-2 px-3 text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Add
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Quick Setup Modal Component
+function QuickSetupModal({
+  server,
+  isOpen,
+  onClose,
+  onAdd,
+  saving,
+}: {
+  server: QuickSetupServer | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onAdd: (apiKey: string) => Promise<void>;
+  saving: boolean;
+}) {
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+
+  // Reset state when modal opens/closes
+  useEffect(() => {
+    if (!isOpen) {
+      setApiKey('');
+      setShowKey(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !server) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!apiKey.trim()) return;
+    await onAdd(apiKey);
+  };
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onClose}
+        />
+        {/* Modal */}
+        <motion.div
+          className="relative z-10 bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700"
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+        >
+          <div className="flex items-start gap-4 mb-4">
+            <div className="p-2 bg-primary-100 dark:bg-primary-900/40 rounded-lg">
+              <QuickSetupIcon icon={server.icon} className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Add {server.name}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {server.description}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {server.apiKeyLabel}
+                </label>
+                <a
+                  href={server.apiKeyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+                >
+                  Get {server.apiKeyLabel}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={`Enter your ${server.apiKeyLabel.toLowerCase()}...`}
+                  className="input w-full pr-10 font-mono text-sm"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-2 px-4 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!apiKey.trim() || saving}
+                className="flex-1 py-2 px-4 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                Add Server
+              </button>
+            </div>
+          </form>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 function MCPServersTab() {
   const { servers, loading, addServer, updateServer, toggleServer, removeServer } = useMCPServers();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -342,6 +615,40 @@ function MCPServersTab() {
   const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+
+  // Quick Setup state
+  const [quickSetupServer, setQuickSetupServer] = useState<QuickSetupServer | null>(null);
+  const [quickSetupSaving, setQuickSetupSaving] = useState(false);
+
+  // Check if a Quick Setup server is already added
+  const isQuickSetupServerAdded = (serverId: string): boolean => {
+    const server = QUICK_SETUP_SERVERS.find(s => s.id === serverId);
+    if (!server) return false;
+    // Check by name or by matching the env var key
+    return servers.some(s =>
+      s.name.toLowerCase() === server.name.toLowerCase() ||
+      (s.config?.env && typeof s.config.env === 'object' && server.apiKeyEnvVar in (s.config.env as Record<string, unknown>))
+    );
+  };
+
+  // Handle Quick Setup server add
+  const handleQuickSetupAdd = async (apiKey: string) => {
+    if (!quickSetupServer) return;
+
+    setQuickSetupSaving(true);
+    try {
+      const config: Record<string, unknown> = {
+        command: quickSetupServer.command,
+        args: quickSetupServer.args,
+        env: { [quickSetupServer.apiKeyEnvVar]: apiKey },
+      };
+
+      await addServer(quickSetupServer.name, config);
+      setQuickSetupServer(null);
+    } finally {
+      setQuickSetupSaving(false);
+    }
+  };
 
   const handleToggle = async (serverId: string, enabled: boolean) => {
     await toggleServer(serverId, enabled);
@@ -511,6 +818,34 @@ function MCPServersTab() {
           </MagneticButton>
         )}
       </div>
+
+      {/* Quick Setup Section */}
+      <div className="mb-6 p-4 bg-gradient-to-r from-primary-50 to-blue-50 dark:from-primary-900/20 dark:to-blue-900/20 rounded-xl border border-primary-200 dark:border-primary-800">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+          <h3 className="font-semibold text-gray-900 dark:text-white">Quick Setup</h3>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Recommended for research</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {QUICK_SETUP_SERVERS.map((server) => (
+            <QuickSetupCard
+              key={server.id}
+              server={server}
+              isAdded={isQuickSetupServerAdded(server.id)}
+              onAdd={() => setQuickSetupServer(server)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Quick Setup Modal */}
+      <QuickSetupModal
+        server={quickSetupServer}
+        isOpen={quickSetupServer !== null}
+        onClose={() => setQuickSetupServer(null)}
+        onAdd={handleQuickSetupAdd}
+        saving={quickSetupSaving}
+      />
 
       {showAddForm && (
         <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -1185,44 +1520,6 @@ function ResearchSettingsTab() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Research Schedule
-            </label>
-            {savedIndicator === 'schedule_cron' && (
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
-              >
-                <CheckCircle2 className="w-3 h-3" /> Saved
-              </motion.span>
-            )}
-          </div>
-          <select
-            value={settings.schedule_cron}
-            onChange={(e) => autoSave('schedule_cron', e.target.value)}
-            className="input w-full"
-          >
-            <option value="0 6 * * *">Daily at 6:00 AM</option>
-            <option value="0 7 * * *">Daily at 7:00 AM</option>
-            <option value="0 8 * * *">Daily at 8:00 AM</option>
-            <option value="0 9 * * *">Daily at 9:00 AM</option>
-            <option value="0 12 * * *">Daily at 12:00 PM</option>
-            <option value="0 18 * * *">Daily at 6:00 PM</option>
-            <option value="0 8 * * 1-5">Weekdays at 8:00 AM</option>
-            <option value="0 9 * * 1-5">Weekdays at 9:00 AM</option>
-            <option value="0 8,18 * * *">Twice daily (8 AM & 6 PM)</option>
-            <option value="0 0 * * 0">Weekly on Sunday</option>
-            <option value="0 0 * * 1">Weekly on Monday</option>
-          </select>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            When to automatically run research for your topics
-          </p>
-        </div>
-
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               AI Model
             </label>
             {savedIndicator === 'model' && (
@@ -1387,6 +1684,151 @@ function ResearchSettingsTab() {
             Run Research Now
           </MagneticButton>
         </div>
+
+        {/* CLI Installation Section */}
+        <CliInstallSection />
+      </div>
+    </div>
+  );
+}
+
+interface CliStatus {
+  installed: boolean;
+  path?: string;
+}
+
+function CliInstallSection() {
+  const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkCliStatus = async () => {
+    try {
+      const status = await invoke<CliStatus>('get_cli_status');
+      setCliStatus(status);
+    } catch (err) {
+      console.error('Failed to check CLI status:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    checkCliStatus();
+  }, []);
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      const result = await invoke<{ success: boolean; message: string; path?: string }>('install_cli');
+      if (result.success) {
+        await checkCliStatus();
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleUninstall = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      const result = await invoke<{ success: boolean; message: string }>('uninstall_cli');
+      if (result.success) {
+        await checkCliStatus();
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 mb-3">
+          <Terminal className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <h3 className="font-medium text-gray-900 dark:text-white">Command Line Interface</h3>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking CLI status...
+          </div>
+        ) : cliStatus?.installed ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+              <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">CLI Installed</p>
+                <p className="text-xs text-green-600 dark:text-green-400 font-mono">{cliStatus.path}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                You can now use <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded font-mono">claudius</code> from your terminal:
+              </p>
+              <div className="p-2 bg-gray-900 dark:bg-black rounded-lg font-mono text-xs text-gray-300 space-y-1">
+                <p>$ claudius topics list</p>
+                <p>$ claudius research --now</p>
+                <p>$ claudius briefings list --json</p>
+              </div>
+            </div>
+            <div className="pt-2">
+              <button
+                onClick={handleUninstall}
+                disabled={installing}
+                className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex items-center gap-1"
+              >
+                {installing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3" />
+                )}
+                Uninstall CLI
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Install the command-line interface to run Claudius from your terminal.
+            </p>
+            <MagneticButton
+              onClick={handleInstall}
+              disabled={installing}
+              variant="secondary"
+              className="flex items-center gap-2"
+            >
+              {installing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Terminal className="w-4 h-4" />
+              )}
+              Install CLI
+            </MagneticButton>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              This will create a symlink at <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded font-mono">/usr/local/bin/claudius</code>.
+              Admin password required.
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
       </div>
     </div>
   );

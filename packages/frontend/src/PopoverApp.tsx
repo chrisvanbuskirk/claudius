@@ -24,17 +24,10 @@ interface Topic {
   enabled: boolean;
 }
 
-interface SchedulerStatus {
-  running: boolean;
-  schedule: string | null;
-}
-
 export function PopoverApp() {
   const { setIsResearchRunning } = useResearch();
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
-  const [nextRunTime, setNextRunTime] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -46,15 +39,11 @@ export function PopoverApp() {
 
   async function loadData() {
     try {
-      const [briefingsResult, statusResult, nextRun, topicsResult] = await Promise.all([
+      const [briefingsResult, topicsResult] = await Promise.all([
         invoke<Briefing[]>('get_todays_briefings'),
-        invoke<SchedulerStatus>('get_scheduler_status'),
-        invoke<string | null>('get_next_run_time'),
         invoke<Topic[]>('get_topics'),
       ]);
       setBriefings(briefingsResult);
-      setSchedulerStatus(statusResult);
-      setNextRunTime(nextRun);
       setTopics(topicsResult.filter(t => t.enabled));
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -169,11 +158,6 @@ export function PopoverApp() {
               </svg>
             </button>
           </div>
-        </div>
-        {/* Scheduler status */}
-        <div className="mt-2 flex items-center gap-2 text-xs text-blue-100">
-          <div className={`w-1.5 h-1.5 rounded-full ${schedulerStatus?.running ? 'bg-green-400' : 'bg-gray-400'}`} />
-          <span>{nextRunTime ? `Next briefing: ${nextRunTime}` : 'Scheduler paused'}</span>
         </div>
       </div>
 

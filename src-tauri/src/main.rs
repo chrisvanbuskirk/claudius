@@ -2,7 +2,6 @@
 
 mod db;
 mod commands;
-mod scheduler;
 mod tray;
 mod notifications;
 mod research;
@@ -10,10 +9,8 @@ mod research_state;
 mod mcp_client;
 mod research_log;
 
-use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-use scheduler::Scheduler;
 
 fn main() {
     // Initialize tracing for logging
@@ -32,7 +29,6 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(Arc::new(Scheduler::new()))
         .invoke_handler(tauri::generate_handler![
             // Briefing commands
             commands::get_briefings,
@@ -68,10 +64,6 @@ fn main() {
             // Research commands
             commands::trigger_research,
             commands::run_research_now,
-            // Scheduler commands
-            get_scheduler_status,
-            start_scheduler,
-            stop_scheduler,
             // Legacy interest commands (for CLI compatibility)
             commands::get_interests,
             commands::add_interest,
@@ -82,7 +74,6 @@ fn main() {
             commands::open_main_window,
             commands::open_settings_window,
             commands::hide_popover,
-            get_next_run_time,
             // Research log commands
             commands::get_research_logs,
             commands::get_actionable_errors,
@@ -90,6 +81,10 @@ fn main() {
             commands::cancel_research,
             commands::reset_research_state,
             commands::get_research_status,
+            // CLI installation commands
+            commands::get_cli_status,
+            commands::install_cli,
+            commands::uninstall_cli,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -137,44 +132,12 @@ fn main() {
                 tracing::info!("Global shortcut registered: Cmd/Ctrl+Shift+B");
             }
 
-            // Start scheduler with saved preferences
-            let scheduler = app.state::<Arc<Scheduler>>();
-            let scheduler_clone = scheduler.inner().clone();
-            let app_handle_for_scheduler = app_handle.clone();
-
-            // Spawn async task to start scheduler
-            tauri::async_runtime::spawn(async move {
-                // Set app handle on scheduler for notifications
-                scheduler_clone.set_app_handle(app_handle_for_scheduler).await;
-
-                // Load schedule from preferences
-                match commands::get_settings() {
-                    Ok(settings) => {
-                        let schedule = settings.schedule_cron;
-                        tracing::info!("Starting scheduler with schedule: {}", schedule);
-
-                        if let Err(e) = scheduler_clone.start(&schedule).await {
-                            tracing::error!("Failed to start scheduler: {}", e);
-                        } else {
-                            tracing::info!("Scheduler started successfully");
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Could not load settings, using default schedule: {}", e);
-                        // Use default schedule
-                        if let Err(e) = scheduler_clone.start("0 6 * * *").await {
-                            tracing::error!("Failed to start scheduler with default: {}", e);
-                        }
-                    }
-                }
-            });
-
             Ok(())
         })
         // Handle window events
         .on_window_event(|window, event| {
             match event {
-                // Hide main window on close instead of quitting (keeps scheduler running)
+                // Hide main window on close instead of quitting (keeps tray icon active)
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     if window.label() == "main" {
                         tracing::info!("Main window close requested, hiding instead");
@@ -195,44 +158,4 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// Get the current scheduler status
-#[tauri::command]
-async fn get_scheduler_status(
-    scheduler: tauri::State<'_, Arc<Scheduler>>
-) -> Result<serde_json::Value, String> {
-    let is_running = scheduler.is_running().await;
-    let schedule = scheduler.get_schedule().await;
-
-    Ok(serde_json::json!({
-        "running": is_running,
-        "schedule": schedule
-    }))
-}
-
-/// Start the scheduler with the given cron expression
-#[tauri::command]
-async fn start_scheduler(
-    scheduler: tauri::State<'_, Arc<Scheduler>>,
-    cron_expr: String
-) -> Result<(), String> {
-    scheduler.start(&cron_expr).await
-}
-
-/// Stop the scheduler
-#[tauri::command]
-async fn stop_scheduler(
-    scheduler: tauri::State<'_, Arc<Scheduler>>
-) -> Result<(), String> {
-    scheduler.stop().await;
-    Ok(())
-}
-
-/// Get the next scheduled run time
-#[tauri::command]
-async fn get_next_run_time(
-    scheduler: tauri::State<'_, Arc<Scheduler>>
-) -> Result<Option<String>, String> {
-    Ok(scheduler.get_next_run_time().await)
 }

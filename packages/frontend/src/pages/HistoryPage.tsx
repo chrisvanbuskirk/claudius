@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Search, Filter, Calendar, Loader2, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 // date-fns available for future use
@@ -34,6 +34,7 @@ export function HistoryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<BriefingFilters>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const initialLoadDone = useRef(false);
 
   // Parse the cards JSON and flatten into individual briefing cards
   const briefings = useMemo(() => {
@@ -75,7 +76,47 @@ export function HistoryPage() {
     return result;
   }, [rawBriefings]);
 
+  // Apply client-side filters (relevance, topic, date, AND search query at card level)
+  const filteredBriefings = useMemo(() => {
+    const result = briefings.filter(briefing => {
+      // Filter by search query at card level (backend searches briefings, we filter cards)
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesTitle = briefing.title.toLowerCase().includes(query);
+        const matchesSummary = briefing.summary.toLowerCase().includes(query);
+        const matchesTopic = briefing.topic_name?.toLowerCase().includes(query);
+        if (!matchesTitle && !matchesSummary && !matchesTopic) {
+          return false;
+        }
+      }
+      // Filter by relevance
+      if (filters.relevance && briefing.relevance !== filters.relevance) {
+        return false;
+      }
+      // Filter by topic (match by topic name since we don't have topic_id)
+      if (filters.topic_id) {
+        const matchingTopic = topics.find(t => t.id === filters.topic_id);
+        if (matchingTopic && briefing.topic_name.toLowerCase() !== matchingTopic.name.toLowerCase()) {
+          return false;
+        }
+      }
+      // Filter by date
+      if (filters.date_from) {
+        const briefingDate = new Date(briefing.created_at);
+        const filterDate = new Date(filters.date_from);
+        if (briefingDate < filterDate) {
+          return false;
+        }
+      }
+      return true;
+    });
+    return result;
+  }, [briefings, filters, topics, searchQuery]);
+
   useEffect(() => {
+    // Only run initial load once, even if effect re-runs (React Strict Mode, HMR, etc.)
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
     searchBriefings({});
   }, [searchBriefings]);
 
@@ -147,7 +188,7 @@ export function HistoryPage() {
               placeholder="Search briefings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               className="input w-full pl-10"
             />
           </div>
@@ -265,7 +306,7 @@ export function HistoryPage() {
         </div>
       )}
 
-      {!loading && !error && briefings.length === 0 && (
+      {!loading && !error && filteredBriefings.length === 0 && (
         <div className="card p-12 text-center">
           <div className="max-w-md mx-auto">
             <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -295,7 +336,7 @@ export function HistoryPage() {
         initial="hidden"
         animate="show"
       >
-        {briefings.map((briefing) => (
+        {filteredBriefings.map((briefing) => (
           <motion.div
             key={briefing.id}
             variants={{
@@ -312,9 +353,9 @@ export function HistoryPage() {
         ))}
       </motion.div>
 
-      {briefings.length > 0 && (
+      {filteredBriefings.length > 0 && (
         <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          Showing {briefings.length} briefing{briefings.length !== 1 ? 's' : ''}
+          Showing {filteredBriefings.length} briefing{filteredBriefings.length !== 1 ? 's' : ''}
         </div>
       )}
     </div>

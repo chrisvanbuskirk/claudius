@@ -1,11 +1,27 @@
 [package]
 name = "claudius"
-version = "0.2.1"
+version = "0.3.0"
 description = "A local AI research briefing agent"
 authors = ["Chris Van Buskirk"]
 license = "MIT"
 repository = "https://github.com/chrisvanbuskirk/claudius"
 edition = "2021"
+default-run = "ClaudiusApp"
+
+# Library for shared code (used by both Tauri app and CLI)
+[lib]
+name = "claudius"
+path = "src/lib.rs"
+
+# Tauri desktop application (named to avoid case-insensitive conflict with CLI)
+[[bin]]
+name = "ClaudiusApp"
+path = "src/main.rs"
+
+# Command-line interface
+[[bin]]
+name = "claudius"
+path = "src/bin/cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -24,14 +40,18 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 dirs = "5"
-tokio-cron-scheduler = "0.13"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-cron = "0.13"
 reqwest = { version = "0.12", features = ["json"] }
 regex = "1"
 image = "0.25"
 lazy_static = "1"
+
+# CLI dependencies
+clap = { version = "4", features = ["derive"] }
+comfy-table = "7"
+colored = "2"
+scopeguard = "1"
 
 [features]
 default = ["custom-protocol"]
