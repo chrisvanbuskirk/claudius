@@ -1109,7 +1109,6 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
                 println!("{}", "Research Settings".bold());
                 println!();
                 println!("  Model: {}", settings.model.cyan());
-                println!("  Schedule: {}", settings.schedule_cron);
                 println!("  Research depth: {}", settings.research_depth);
                 println!("  Max sources per topic: {}", settings.max_sources_per_topic);
                 println!("  Notifications: {}", if settings.enable_notifications { "enabled" } else { "disabled" });
@@ -1122,7 +1121,6 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
 
             match key.as_str() {
                 "model" => settings.model = value.clone(),
-                "schedule" | "schedule_cron" => settings.schedule_cron = value.clone(),
                 "research_depth" | "depth" => settings.research_depth = value.clone(),
                 "max_sources" | "max_sources_per_topic" => {
                     settings.max_sources_per_topic = value.parse()

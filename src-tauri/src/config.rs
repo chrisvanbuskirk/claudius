@@ -23,7 +23,6 @@ pub struct MCPServersConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSettings {
-    pub schedule_cron: String,
     pub model: String,
     pub research_depth: String,
     pub max_sources_per_topic: i32,
@@ -41,7 +40,6 @@ fn default_notification_sound() -> bool {
 impl Default for ResearchSettings {
     fn default() -> Self {
         Self {
-            schedule_cron: "0 6 * * *".to_string(),
             model: "claude-haiku-4-5-20251001".to_string(),
             research_depth: "medium".to_string(),
             max_sources_per_topic: 10,

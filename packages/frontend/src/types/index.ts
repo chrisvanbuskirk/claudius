@@ -31,7 +31,6 @@ export interface MCPServer {
 }
 
 export interface ResearchSettings {
-  schedule_cron: string;
   model: string;
   research_depth: 'shallow' | 'medium' | 'deep';
   max_sources_per_topic: number;

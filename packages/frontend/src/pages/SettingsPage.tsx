@@ -1520,44 +1520,6 @@ function ResearchSettingsTab() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Research Schedule
-            </label>
-            {savedIndicator === 'schedule_cron' && (
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
-              >
-                <CheckCircle2 className="w-3 h-3" /> Saved
-              </motion.span>
-            )}
-          </div>
-          <select
-            value={settings.schedule_cron}
-            onChange={(e) => autoSave('schedule_cron', e.target.value)}
-            className="input w-full"
-          >
-            <option value="0 6 * * *">Daily at 6:00 AM</option>
-            <option value="0 7 * * *">Daily at 7:00 AM</option>
-            <option value="0 8 * * *">Daily at 8:00 AM</option>
-            <option value="0 9 * * *">Daily at 9:00 AM</option>
-            <option value="0 12 * * *">Daily at 12:00 PM</option>
-            <option value="0 18 * * *">Daily at 6:00 PM</option>
-            <option value="0 8 * * 1-5">Weekdays at 8:00 AM</option>
-            <option value="0 9 * * 1-5">Weekdays at 9:00 AM</option>
-            <option value="0 8,18 * * *">Twice daily (8 AM & 6 PM)</option>
-            <option value="0 0 * * 0">Weekly on Sunday</option>
-            <option value="0 0 * * 1">Weekly on Monday</option>
-          </select>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            When to automatically run research for your topics
-          </p>
-        </div>
-
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               AI Model
             </label>
             {savedIndicator === 'model' && (

@@ -108,9 +108,16 @@ pub fn reset() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    // Tests must run serially because they share GLOBAL_STATE
+    lazy_static! {
+        static ref TEST_MUTEX: StdMutex<()> = StdMutex::new(());
+    }
 
     #[test]
     fn test_initial_state() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         assert!(!is_running());
         assert!(!is_cancelled());
@@ -118,6 +125,7 @@ mod tests {
 
     #[test]
     fn test_set_running() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         let token = set_running("starting").unwrap();
         assert!(is_running());
@@ -126,6 +134,7 @@ mod tests {
 
     #[test]
     fn test_prevent_concurrent_research() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         let _ = set_running("starting").unwrap();
         let result = set_running("starting");
@@ -135,6 +144,7 @@ mod tests {
 
     #[test]
     fn test_cancellation() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         let _ = set_running("starting").unwrap();
         assert!(!is_cancelled());
@@ -145,6 +155,7 @@ mod tests {
 
     #[test]
     fn test_set_stopped() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         let _ = set_running("starting").unwrap();
         set_stopped().unwrap();
@@ -153,6 +164,7 @@ mod tests {
 
     #[test]
     fn test_phase_updates() {
+        let _lock = TEST_MUTEX.lock().unwrap();
         reset();
         let _ = set_running("starting").unwrap();
         set_phase("researching");

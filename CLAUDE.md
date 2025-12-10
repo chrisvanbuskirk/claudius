@@ -34,7 +34,6 @@ claudius/
 │   │   ├── commands.rs      # Tauri commands (IPC)
 │   │   ├── research.rs      # Research agent (calls Anthropic API)
 │   │   ├── research_state.rs # Global research state (for CLI progress)
-│   │   ├── scheduler.rs     # Cron-based research scheduler
 │   │   ├── notifications.rs # Desktop notifications
 │   │   ├── tray.rs          # System tray integration
 │   │   └── db.rs            # Rust database layer
@@ -232,6 +231,51 @@ claudius config api-key set   # Set API key
 ```
 
 All commands support `--json` for machine-readable output.
+
+### Scheduling Research (Automation)
+
+The desktop app does not include built-in scheduling. To automate daily briefings, use the CLI with system scheduling tools. This approach is more reliable as it ensures the computer is awake when research runs.
+
+**macOS (launchd)** - Create `~/Library/LaunchAgents/com.claudius.research.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claudius.research</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/claudius</string>
+        <string>research</string>
+        <string>now</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/claudius-research.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/claudius-research.log</string>
+</dict>
+</plist>
+```
+
+Load with: `launchctl load ~/Library/LaunchAgents/com.claudius.research.plist`
+
+**Linux/macOS (cron)** - Run `crontab -e` and add:
+
+```cron
+# Run research daily at 7:00 AM
+0 7 * * * /usr/local/bin/claudius research now >> /tmp/claudius-research.log 2>&1
+```
+
+Note: Ensure the CLI is installed (Settings → Install CLI) and your API key is configured (`claudius config api-key set`).
 
 ## Development Commands
 

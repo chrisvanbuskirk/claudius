@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tracing::{info, warn, error};
 use std::process::Command;
@@ -38,6 +38,8 @@ pub fn notify_research_complete(
     }
 
     // Try Tauri notification first
+    // Note: On macOS, the app icon is automatically used from the bundle in production
+    // In dev mode, notifications may show a generic icon
     let mut builder = app.notification()
         .builder()
         .title(title)
@@ -47,18 +49,33 @@ pub fn notify_research_complete(
         builder = builder.sound("default");
     }
 
-    match builder.show() {
-        Ok(_) => {
-            info!("Tauri notification sent successfully");
-        }
-        Err(e) => {
-            warn!("Tauri notification failed: {}", e);
+    // Try to set icon path (helps in dev mode on some platforms)
+    #[cfg(target_os = "macos")]
+    {
+        // Use the app's icon.icns from the icons directory
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let icon_path = resource_dir.join("icons").join("icon.icns");
+            if icon_path.exists() {
+                builder = builder.icon(icon_path.to_string_lossy().to_string());
+            }
         }
     }
 
-    // Also try native macOS notification as fallback (more reliable in dev mode)
+    let tauri_success = match builder.show() {
+        Ok(_) => {
+            info!("Tauri notification sent successfully");
+            true
+        }
+        Err(e) => {
+            warn!("Tauri notification failed: {}", e);
+            false
+        }
+    };
+
+    // Only use AppleScript fallback if Tauri notification failed
+    // Note: AppleScript notifications show Script Editor icon, not app icon
     #[cfg(target_os = "macos")]
-    {
+    if !tauri_success {
         let sound_option = if enable_sound { "sound name \"Glass\"" } else { "" };
         let script = format!(
             r#"display notification "{}" with title "{}" {}"#,
@@ -74,7 +91,7 @@ pub fn notify_research_complete(
         {
             Ok(output) => {
                 if output.status.success() {
-                    info!("Native macOS notification sent successfully");
+                    info!("Native macOS notification sent (fallback)");
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     warn!("Native macOS notification failed: {}", stderr);

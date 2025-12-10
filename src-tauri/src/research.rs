@@ -597,7 +597,9 @@ impl ResearchAgent {
 
         Self {
             client: Client::builder()
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_secs(180)) // 3 min total request timeout
+                .connect_timeout(Duration::from_secs(30)) // 30s to establish connection
+                .pool_idle_timeout(Duration::from_secs(60)) // Close idle connections after 60s
                 .build()
                 .expect("Failed to build HTTP client"),
             api_key,
