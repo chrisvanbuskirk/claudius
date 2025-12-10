@@ -30,7 +30,7 @@ export function Sidebar() {
           </motion.div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Claudius</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">AI Research Assistant</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">AI Research Agent</p>
           </div>
         </div>
       </div>
