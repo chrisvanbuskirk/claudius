@@ -5,8 +5,8 @@
 <h1 align="center">Claudius</h1>
 
 <p align="center">
-  <strong>AI Research Assistant</strong><br>
-  <em>Personalized daily briefings powered by Claude</em>
+  <strong>AI Research Agent</strong><br>
+  <em>Desktop app + CLI for personalized daily briefings powered by Claude</em>
 </p>
 
 <p align="center">
@@ -23,15 +23,16 @@
 
 ---
 
-A native desktop application that generates personalized daily research briefings using Claude. Configure your topics of interest, and Claudius will research them overnight, delivering curated briefing cards by morning.
+A native desktop application and CLI that generates personalized daily research briefings using Claude. Configure your topics of interest, and Claudius will research them overnight, delivering curated briefing cards by morning.
 
 ## Overview
 
-Claudius is a self-hosted, privacy-first research assistant. It:
-- Runs overnight and generates briefings by morning
+Claudius is a self-hosted, privacy-first research assistant available as both a **desktop app** and **command-line interface**. It:
+- Runs overnight and generates briefings by morning (or on-demand via CLI)
 - Uses Claude's agentic research capabilities to gather information on your topics
 - Keeps all data local (SQLite database, no cloud storage)
 - Supports macOS (Apple Silicon & Intel), Windows, and Linux
+- Works headless via CLI for automation (cron, Shortcuts, scripts)
 - Integrates with Claude Desktop as an MCP Server
 
 ## Features
@@ -44,6 +45,60 @@ Claudius is a self-hosted, privacy-first research assistant. It:
 - **Desktop App**: Native app built with Tauri 2.0 for macOS, Windows, and Linux
 - **CLI**: Full command-line interface for power users
 - **Claude Desktop Integration**: MCP server lets Claude access your briefings
+
+## How It Works: Agentic Architecture
+
+Claudius implements Claude's **agentic tool-use pattern** in native Rust. This is the same pattern used by the Claude Agent SDK, but built directly on the Anthropic Messages API for maximum performance and minimal dependencies.
+
+### The Agentic Loop
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. User configures topics: "AI News", "Rust Updates"           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  2. Claudius sends prompt + available tools to Claude API       │
+│     Tools: fetch_webpage, brave_search, github_search, etc.     │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  3. Claude responds with tool_use: "I want to search for..."    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  4. Claudius executes the tool and returns tool_result          │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  5. Claude processes results, may request more tools            │
+│     (Loop continues until Claude has enough information)        │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  6. Claude synthesizes findings into briefing cards             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Available Tools
+
+| Tool | Source | Description |
+|------|--------|-------------|
+| `fetch_webpage` | Built-in | Fetches and parses web page content |
+| `brave_search` | MCP Server | Real-time web search (recommended) |
+| `perplexity` | MCP Server | AI-powered search validation |
+| `github_search` | MCP Server | Search GitHub repos, issues, PRs |
+| `github_get_repo` | MCP Server | Get repository details |
+| `web_search` | Claude API | Claude's native web search ($0.01/search) |
+
+### Why This Matters
+
+- **Autonomous Research**: Claude decides what to search, what URLs to fetch, and when it has enough information
+- **Dynamic Tool Selection**: Claude chooses the best tool for each query (search vs direct fetch)
+- **Iterative Refinement**: Claude can search, read results, then search again with better queries
+- **No SDK Required**: Native Rust implementation means no Python/Node.js dependencies
+
+The research agent implementation lives in `src-tauri/src/research.rs` and handles the full agentic loop, tool execution, and synthesis phases.
 
 ## Screenshots
 
