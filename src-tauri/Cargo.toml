@@ -6,16 +6,16 @@ authors = ["Chris Van Buskirk"]
 license = "MIT"
 repository = "https://github.com/chrisvanbuskirk/claudius"
 edition = "2021"
-default-run = "claudius-tauri"
+default-run = "ClaudiusApp"
 
 # Library for shared code (used by both Tauri app and CLI)
 [lib]
 name = "claudius"
 path = "src/lib.rs"
 
-# Tauri desktop application
+# Tauri desktop application (named to avoid case-insensitive conflict with CLI)
 [[bin]]
-name = "claudius-tauri"
+name = "ClaudiusApp"
 path = "src/main.rs"
 
 # Command-line interface

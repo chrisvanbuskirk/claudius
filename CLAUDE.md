@@ -178,10 +178,12 @@ The CLI is a standalone Rust binary (`src-tauri/src/bin/cli.rs`) that shares cod
 
 ```
 Cargo.toml:
-  [lib]           → src/lib.rs (shared code: db, research, mcp_client, config)
-  [[bin]] claudius-tauri → src/main.rs (Tauri app)
-  [[bin]] claudius      → src/bin/cli.rs (CLI)
+  [lib]              → src/lib.rs (shared code: db, research, mcp_client, config)
+  [[bin]] ClaudiusApp → src/main.rs (Tauri app, named to avoid case conflict with CLI)
+  [[bin]] claudius   → src/bin/cli.rs (CLI)
 ```
+
+Note: macOS has a case-insensitive filesystem, so "Claudius" and "claudius" would collide. The Tauri app binary is named `ClaudiusApp` in dev mode, but production builds use `productName: "Claudius"` from tauri.conf.json (via Info.plist).
 
 Both binaries share:
 - `research.rs` - Research agent (passes `app_handle: None` for CLI)
