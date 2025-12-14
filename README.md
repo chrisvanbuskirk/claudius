@@ -42,6 +42,7 @@ Claudius is a self-hosted, privacy-first research assistant available as both a 
 - **Daily Briefings**: Wake up to curated research cards with summaries and sources
 - **Feedback Learning**: Thumbs up/down on cards helps refine future research
 - **Privacy First**: All data stays on your machine - no cloud storage required
+- **Auto-Update**: Automatic update detection with in-app notifications and one-click install
 - **Desktop App**: Native app built with Tauri 2.0 for macOS, Windows, and Linux
 - **CLI**: Full command-line interface for power users
 - **Claude Desktop Integration**: MCP server lets Claude access your briefings
@@ -137,7 +138,7 @@ claudius/
 │       ├── commands.rs   # Tauri IPC commands
 │       ├── research.rs   # Anthropic API research agent with tool_use
 │       ├── mcp_client.rs # MCP server client (JSON-RPC 2.0)
-│       ├── scheduler.rs  # Cron-based research scheduler
+│       ├── updater.rs    # Auto-update functionality
 │       └── db.rs         # SQLite database layer
 └── ~/.claudius/       # Config & data (created at runtime)
     ├── .env              # API key (ANTHROPIC_API_KEY)
@@ -231,12 +232,45 @@ Claude also offers a **built-in web search tool** that doesn't require any MCP s
 
 You can use Claude Web Search alongside MCP servers - Claude will intelligently choose the best tool for each query.
 
+## Installation
+
+### Download (Recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/chrisvanbuskirk/claudius/releases):
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `Claudius_x.x.x_aarch64.dmg` |
+| Linux (Debian/Ubuntu) | `Claudius_x.x.x_amd64.deb` |
+| Linux (Fedora/RHEL) | `Claudius-x.x.x-1.x86_64.rpm` |
+| Linux (AppImage) | `Claudius_x.x.x_amd64.AppImage` |
+
+### Homebrew (macOS)
+
+```bash
+brew tap chrisvanbuskirk/claudius
+brew install --cask claudius
+```
+
+Update with: `brew upgrade --cask claudius`
+
+### Auto-Updates
+
+Claudius automatically checks for updates on startup:
+
+1. **Detection**: When a new version is available, you'll see an in-app banner
+2. **Background Download**: Updates download automatically in the background
+3. **Notification**: A native notification appears when the download completes
+4. **One-Click Install**: Click "Restart to Update" to apply the update
+
+Updates are cryptographically signed and verified before installation.
+
 ## Quick Start
 
 ### For End Users
 
-1. Download the latest release from [GitHub Releases](https://github.com/chrisvanbuskirk/claudius/releases)
-2. Install and launch the app
+1. Install Claudius using one of the methods above
+2. Launch the app
 3. Add your Anthropic API key in Settings
 4. Configure your research topics
 5. Click "Run Research Now" or wait for the scheduled run
@@ -413,11 +447,11 @@ crontab -e
 ```
 Then load with: `launchctl load ~/Library/LaunchAgents/com.claudius.research.plist`
 
-**Why use CLI scheduling instead of the built-in scheduler?**
-- No need to keep the app running 24/7
+**Why use CLI scheduling?**
 - Works even when your Mac wakes from sleep
 - More flexible triggers (location, Focus modes, events)
 - Can run on headless servers or in CI/CD pipelines
+- Briefings appear in the desktop app whenever you open it
 
 ## Claude Desktop Integration
 
@@ -484,7 +518,7 @@ Claudius uses an agentic research system built in Rust that leverages Claude's `
 │                    RESEARCH FLOW                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. User triggers research (button click or scheduler)          │
+│  1. User triggers research (button click or CLI)                 │
 │                                                                 │
 │  2. Agent initializes:                                          │
 │     - Loads topics from SQLite database                         │
