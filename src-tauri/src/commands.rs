@@ -1364,9 +1364,23 @@ pub async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo
 /// Install pending update and restart the app
 #[tauri::command]
 pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), String> {
+    use crate::updater::is_update_ready;
+
     tracing::info!("Installing update and restarting...");
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    // Check if an update has already been downloaded and installed
+    if is_update_ready() {
+        tracing::info!("Update already installed, restarting to apply...");
+        app.restart();
+    }
+
+    // Fallback: check for update and download if needed (e.g., if app was restarted between download and install)
+    tracing::info!("No pre-installed update found, checking for updates...");
+
+    let updater = app.updater().map_err(|e| {
+        tracing::warn!("Failed to get updater: {}", e);
+        e.to_string()
+    })?;
 
     match updater.check().await {
         Ok(Some(update)) => {

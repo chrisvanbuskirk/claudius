@@ -2,10 +2,10 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 use tracing::{info, warn, error};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Track if an update has been downloaded and is ready to install
-#[allow(dead_code)]
 static UPDATE_READY: AtomicBool = AtomicBool::new(false);
 
 /// Event payload for update available notification
@@ -57,14 +57,15 @@ pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
             info!("Downloading update v{}...", version);
 
             let app_for_progress = app.clone();
-            let mut downloaded_bytes: u64 = 0;
+            let downloaded_bytes = Arc::new(AtomicU64::new(0));
+            let downloaded_bytes_clone = downloaded_bytes.clone();
 
             let bytes = update.download(
                 move |chunk_length, content_length| {
-                    downloaded_bytes += chunk_length as u64;
-                    // Emit progress events periodically
+                    let total_downloaded = downloaded_bytes_clone.fetch_add(chunk_length as u64, Ordering::SeqCst) + chunk_length as u64;
+                    // Emit progress events
                     let _ = app_for_progress.emit("update:progress", UpdateProgressEvent {
-                        downloaded: downloaded_bytes,
+                        downloaded: total_downloaded,
                         total: content_length,
                     });
                 },
@@ -74,7 +75,15 @@ pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
             ).await;
 
             match bytes {
-                Ok(_) => {
+                Ok(update_bytes) => {
+                    info!("Download complete, installing update...");
+
+                    // Install the update (stages files for next restart)
+                    if let Err(e) = update.install(update_bytes) {
+                        error!("Failed to install update: {}", e);
+                        return Err(e.to_string());
+                    }
+
                     // Mark that update is ready
                     UPDATE_READY.store(true, Ordering::SeqCst);
 
@@ -86,7 +95,7 @@ pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
                     // Send native notification
                     notify_update_available(&app, &version, notes.as_deref())?;
 
-                    info!("Update v{} ready to install", version);
+                    info!("Update v{} installed and ready - restart to apply", version);
                     Ok(())
                 }
                 Err(e) => {
@@ -108,7 +117,6 @@ pub async fn check_for_updates(app: AppHandle) -> Result<(), String> {
 }
 
 /// Check if an update is downloaded and ready to install
-#[allow(dead_code)]
 pub fn is_update_ready() -> bool {
     UPDATE_READY.load(Ordering::SeqCst)
 }
@@ -116,13 +124,15 @@ pub fn is_update_ready() -> bool {
 /// Send native notification about available update
 fn notify_update_available(app: &AppHandle, version: &str, notes: Option<&str>) -> Result<(), String> {
     let title = "Update Available";
+    const MAX_NOTIFICATION_LENGTH: usize = 100;
     let body = match notes {
         Some(n) if !n.is_empty() => {
-            // Truncate notes if too long for notification
-            let truncated = if n.len() > 100 {
-                format!("{}...", &n[..100])
+            // Truncate notes if too long for notification (UTF-8 safe)
+            let truncated: String = n.chars().take(MAX_NOTIFICATION_LENGTH).collect();
+            let truncated = if n.chars().count() > MAX_NOTIFICATION_LENGTH {
+                format!("{}...", truncated)
             } else {
-                n.to_string()
+                truncated
             };
             format!("Claudius v{} is ready.\n{}", version, truncated)
         }
