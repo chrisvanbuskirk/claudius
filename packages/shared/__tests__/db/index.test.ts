@@ -23,8 +23,12 @@ describe('Database Module', () => {
     } catch {
       // Ignore if not initialized
     }
-    if (testDbPath && fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+    try {
+      if (testDbPath && fs.existsSync(testDbPath)) {
+        fs.unlinkSync(testDbPath);
+      }
+    } catch {
+      // Ignore cleanup errors - file may already be deleted
     }
   });
 

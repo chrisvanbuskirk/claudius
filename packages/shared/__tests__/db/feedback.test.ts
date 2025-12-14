@@ -41,8 +41,12 @@ describe('Feedback Database Operations', () => {
 
   afterEach(() => {
     dbModule.closeDatabase();
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+    try {
+      if (testDbPath && fs.existsSync(testDbPath)) {
+        fs.unlinkSync(testDbPath);
+      }
+    } catch {
+      // Ignore cleanup errors - file may already be deleted
     }
   });
 

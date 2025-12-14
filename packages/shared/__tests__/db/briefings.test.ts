@@ -27,8 +27,12 @@ describe('Briefings Database Operations', () => {
   afterEach(() => {
     dbModule.closeDatabase();
     // Clean up temp file
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+    try {
+      if (testDbPath && fs.existsSync(testDbPath)) {
+        fs.unlinkSync(testDbPath);
+      }
+    } catch {
+      // Ignore cleanup errors - file may already be deleted
     }
   });
 
