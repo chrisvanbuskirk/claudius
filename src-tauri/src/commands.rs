@@ -1316,3 +1316,97 @@ pub async fn uninstall_cli() -> Result<CliInstallResult, String> {
         Err("CLI uninstallation is not supported on this platform".to_string())
     }
 }
+
+// ============================================================================
+// Auto-Update commands
+// ============================================================================
+
+use tauri_plugin_updater::UpdaterExt;
+
+/// Information about an available update
+#[derive(Debug, Serialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub notes: Option<String>,
+    pub date: Option<String>,
+}
+
+/// Check if an update is available (manual check from Settings)
+#[tauri::command]
+pub async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
+    tracing::info!("Manually checking for updates...");
+
+    let updater = app.updater().map_err(|e| {
+        tracing::warn!("Failed to get updater: {}", e);
+        e.to_string()
+    })?;
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            tracing::info!("Update available: v{}", update.version);
+            Ok(Some(UpdateInfo {
+                version: update.version,
+                notes: update.body,
+                date: update.date.map(|d| d.to_string()),
+            }))
+        }
+        Ok(None) => {
+            tracing::info!("No updates available");
+            Ok(None)
+        }
+        Err(e) => {
+            tracing::warn!("Update check failed: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Install pending update and restart the app
+#[tauri::command]
+pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), String> {
+    use crate::updater::is_update_ready;
+
+    tracing::info!("Installing update and restarting...");
+
+    // Check if an update has already been downloaded and installed
+    if is_update_ready() {
+        tracing::info!("Update already installed, restarting to apply...");
+        app.restart();
+    }
+
+    // Fallback: check for update and download if needed (e.g., if app was restarted between download and install)
+    tracing::info!("No pre-installed update found, checking for updates...");
+
+    let updater = app.updater().map_err(|e| {
+        tracing::warn!("Failed to get updater: {}", e);
+        e.to_string()
+    })?;
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            tracing::info!("Downloading and installing update v{}...", update.version);
+
+            // Download and install
+            update
+                .download_and_install(|_, _| {}, || {})
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to install update: {}", e);
+                    e.to_string()
+                })?;
+
+            tracing::info!("Update installed, restarting app...");
+
+            // Restart the app (this never returns)
+            app.restart();
+        }
+        Ok(None) => {
+            tracing::warn!("No update available to install");
+            Err("No update available".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to check for update: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
