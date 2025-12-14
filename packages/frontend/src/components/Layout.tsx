@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { LoadingBorderAura } from './LoadingBorderAura';
 import { AnimatedBackground } from './AnimatedBackground';
+import { UpdateBanner } from './UpdateBanner';
 import { useResearch } from '../contexts/ResearchContext';
 
 interface LayoutProps {
@@ -18,6 +19,7 @@ export function Layout({ children }: LayoutProps) {
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto p-8">
+          <UpdateBanner />
           {children}
         </div>
       </main>

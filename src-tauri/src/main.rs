@@ -8,6 +8,7 @@ mod research;
 mod research_state;
 mod mcp_client;
 mod research_log;
+mod updater;
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -29,6 +30,8 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             // Briefing commands
             commands::get_briefings,
@@ -85,6 +88,9 @@ fn main() {
             commands::get_cli_status,
             commands::install_cli,
             commands::uninstall_cli,
+            // Auto-update commands
+            commands::check_for_update,
+            commands::install_update_and_restart,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -96,6 +102,14 @@ fn main() {
             if let Err(e) = tray::init_tray(&app_handle) {
                 tracing::error!("Failed to initialize tray: {}", e);
             }
+
+            // Check for updates on startup (async, non-blocking)
+            let update_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = updater::check_for_updates(update_handle).await {
+                    tracing::warn!("Update check failed: {}", e);
+                }
+            });
 
             // Register global shortcut: Cmd+Shift+B (macOS) or Ctrl+Shift+B (Windows/Linux)
             #[cfg(target_os = "macos")]
