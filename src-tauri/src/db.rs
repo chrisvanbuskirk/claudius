@@ -24,6 +24,26 @@ pub struct MigrationResult {
     pub errors: Vec<String>,
 }
 
+/// Chat message struct for database operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: i64,
+    pub briefing_id: i64,
+    pub card_index: i32,
+    pub role: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_used: Option<i32>,
+    pub created_at: String,
+}
+
+/// Represents a card that has chat messages (briefing_id + card_index)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardWithChat {
+    pub briefing_id: i64,
+    pub card_index: i32,
+}
+
 pub fn get_db_path() -> PathBuf {
     let home = dirs::home_dir().expect("Could not find home directory");
     home.join(".claudius").join("claudius.db")
@@ -46,6 +66,11 @@ pub fn init_database(_app: &AppHandle) -> Result<(), Box<dyn std::error::Error>>
 
     // Create tables
     conn.execute_batch(include_str!("schema.sql"))?;
+
+    // Run migrations
+    if let Err(e) = migrate_chat_messages_add_card_index(&conn) {
+        warn!("Chat messages migration encountered an issue: {}", e);
+    }
 
     // Run topic migration from JSON (idempotent)
     if let Err(e) = migrate_topics_from_json(&conn) {
@@ -207,6 +232,146 @@ pub fn topic_name_exists(conn: &Connection, name: &str) -> std::result::Result<b
 }
 
 // ============================================================================
+// Chat message CRUD operations
+// ============================================================================
+
+/// Get all chat messages for a specific card, ordered by creation time
+pub fn get_chat_messages(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<Vec<ChatMessage>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
+         FROM chat_messages
+         WHERE briefing_id = ?1 AND card_index = ?2
+         ORDER BY created_at ASC"
+    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let messages = stmt.query_map(params![briefing_id, card_index], |row| {
+        Ok(ChatMessage {
+            id: row.get(0)?,
+            briefing_id: row.get(1)?,
+            card_index: row.get(2)?,
+            role: row.get(3)?,
+            content: row.get(4)?,
+            tokens_used: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    }).map_err(|e| format!("Query failed: {}", e))?
+    .collect::<std::result::Result<Vec<_>, _>>()
+    .map_err(|e| format!("Failed to collect results: {}", e))?;
+
+    Ok(messages)
+}
+
+/// Insert a new chat message and return its ID
+pub fn insert_chat_message(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+    role: &str,
+    content: &str,
+    tokens_used: Option<i32>,
+) -> std::result::Result<i64, String> {
+    conn.execute(
+        "INSERT INTO chat_messages (briefing_id, card_index, role, content, tokens_used)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![briefing_id, card_index, role, content, tokens_used],
+    ).map_err(|e| format!("Failed to insert chat message: {}", e))?;
+
+    let id = conn.last_insert_rowid();
+    Ok(id)
+}
+
+/// Get a single chat message by ID
+pub fn get_chat_message_by_id(conn: &Connection, id: i64) -> std::result::Result<Option<ChatMessage>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
+         FROM chat_messages
+         WHERE id = ?1"
+    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let result = stmt.query_row([id], |row| {
+        Ok(ChatMessage {
+            id: row.get(0)?,
+            briefing_id: row.get(1)?,
+            card_index: row.get(2)?,
+            role: row.get(3)?,
+            content: row.get(4)?,
+            tokens_used: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    });
+
+    match result {
+        Ok(message) => Ok(Some(message)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("Failed to get chat message: {}", e)),
+    }
+}
+
+/// Delete all chat messages for a specific card
+pub fn delete_chat_messages(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<usize, String> {
+    let rows_affected = conn.execute(
+        "DELETE FROM chat_messages WHERE briefing_id = ?1 AND card_index = ?2",
+        params![briefing_id, card_index],
+    ).map_err(|e| format!("Failed to delete chat messages: {}", e))?;
+
+    Ok(rows_affected)
+}
+
+/// Get all cards that have chat messages
+pub fn get_cards_with_chats(conn: &Connection) -> std::result::Result<Vec<CardWithChat>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT briefing_id, card_index FROM chat_messages"
+    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let cards = stmt.query_map([], |row| {
+        Ok(CardWithChat {
+            briefing_id: row.get(0)?,
+            card_index: row.get(1)?,
+        })
+    }).map_err(|e| format!("Failed to query cards with chats: {}", e))?;
+
+    let result: Vec<CardWithChat> = cards.flatten().collect();
+    Ok(result)
+}
+
+// ============================================================================
+// Chat messages migration (add card_index column)
+// ============================================================================
+
+/// Migrate chat_messages table to add card_index column if it doesn't exist.
+/// Also ensures the composite index exists (for both migrated and new databases).
+/// This is idempotent.
+fn migrate_chat_messages_add_card_index(conn: &Connection) -> std::result::Result<(), String> {
+    // Check if card_index column exists
+    let mut stmt = conn.prepare("PRAGMA table_info(chat_messages)")
+        .map_err(|e| format!("Failed to get table info: {}", e))?;
+
+    let has_card_index = stmt.query_map([], |row| {
+        row.get::<_, String>(1) // column name is at index 1
+    }).map_err(|e| format!("Failed to query table info: {}", e))?
+    .any(|name| name.map(|n| n == "card_index").unwrap_or(false));
+
+    if !has_card_index {
+        info!("Migrating chat_messages table: adding card_index column");
+        conn.execute(
+            "ALTER TABLE chat_messages ADD COLUMN card_index INTEGER NOT NULL DEFAULT 0",
+            [],
+        ).map_err(|e| format!("Failed to add card_index column: {}", e))?;
+        info!("Chat messages column migration complete");
+    }
+
+    // Always ensure the composite index exists (works for both migrated and new databases)
+    // Drop old single-column index if it exists
+    let _ = conn.execute("DROP INDEX IF EXISTS idx_chat_messages_briefing", []);
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_briefing_card ON chat_messages(briefing_id, card_index)",
+        [],
+    ).map_err(|e| format!("Failed to create index: {}", e))?;
+
+    Ok(())
+}
+
+// ============================================================================
 // Topic migration from JSON
 // ============================================================================
 
@@ -293,4 +458,210 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("schema.sql")).unwrap();
+        conn
+    }
+
+    fn create_test_briefing(conn: &Connection) -> i64 {
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (?1, ?2, ?3)",
+            ["2025-01-01", "Test Briefing", "[]"],
+        ).unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn test_insert_chat_message() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        let id = insert_chat_message(
+            &conn,
+            briefing_id,
+            0, // card_index
+            "user",
+            "Hello, test message",
+            None,
+        ).unwrap();
+        assert!(id > 0);
+    }
+
+    #[test]
+    fn test_get_chat_messages_empty() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_get_chat_messages_with_data() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Insert a user message for card 0
+        insert_chat_message(
+            &conn,
+            briefing_id,
+            0,
+            "user",
+            "What is this about?",
+            None,
+        ).unwrap();
+
+        // Insert an assistant message for card 0
+        insert_chat_message(
+            &conn,
+            briefing_id,
+            0,
+            "assistant",
+            "This briefing is about...",
+            Some(100),
+        ).unwrap();
+
+        let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[1].tokens_used, Some(100));
+    }
+
+    #[test]
+    fn test_chat_messages_by_card_index() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Insert messages for card 0
+        insert_chat_message(&conn, briefing_id, 0, "user", "Card 0 message", None).unwrap();
+
+        // Insert messages for card 1
+        insert_chat_message(&conn, briefing_id, 1, "user", "Card 1 message", None).unwrap();
+        insert_chat_message(&conn, briefing_id, 1, "assistant", "Card 1 reply", None).unwrap();
+
+        // Verify card 0 has 1 message
+        let card0_messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert_eq!(card0_messages.len(), 1);
+        assert_eq!(card0_messages[0].content, "Card 0 message");
+
+        // Verify card 1 has 2 messages
+        let card1_messages = get_chat_messages(&conn, briefing_id, 1).unwrap();
+        assert_eq!(card1_messages.len(), 2);
+    }
+
+    #[test]
+    fn test_get_chat_message_by_id() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        let id = insert_chat_message(
+            &conn,
+            briefing_id,
+            0,
+            "user",
+            "Test content",
+            None,
+        ).unwrap();
+
+        let retrieved = get_chat_message_by_id(&conn, id).unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.id, id);
+        assert_eq!(retrieved.content, "Test content");
+        assert_eq!(retrieved.card_index, 0);
+    }
+
+    #[test]
+    fn test_get_chat_message_by_id_not_found() {
+        let conn = setup_test_db();
+
+        let retrieved = get_chat_message_by_id(&conn, 999).unwrap();
+        assert!(retrieved.is_none());
+    }
+
+    #[test]
+    fn test_delete_chat_messages() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Insert messages for card 0
+        for i in 0..3 {
+            insert_chat_message(
+                &conn,
+                briefing_id,
+                0,
+                "user",
+                &format!("Message {}", i),
+                None,
+            ).unwrap();
+        }
+
+        // Insert messages for card 1 (should not be deleted)
+        insert_chat_message(&conn, briefing_id, 1, "user", "Card 1 message", None).unwrap();
+
+        // Verify messages exist
+        let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // Delete messages for card 0 only
+        let deleted = delete_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert_eq!(deleted, 3);
+
+        // Verify card 0 messages are gone
+        let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert!(messages.is_empty());
+
+        // Verify card 1 messages are still there
+        let messages = get_chat_messages(&conn, briefing_id, 1).unwrap();
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn test_chat_messages_cascade_delete() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Insert chat messages for multiple cards
+        insert_chat_message(&conn, briefing_id, 0, "user", "Test 0", None).unwrap();
+        insert_chat_message(&conn, briefing_id, 1, "user", "Test 1", None).unwrap();
+
+        // Delete the briefing (should cascade to all chat_messages)
+        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id]).unwrap();
+
+        // All chat messages should be gone
+        let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
+        assert!(messages.is_empty());
+        let messages = get_chat_messages(&conn, briefing_id, 1).unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_get_cards_with_chats() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Initially no cards with chats
+        let cards = get_cards_with_chats(&conn).unwrap();
+        assert!(cards.is_empty());
+
+        // Add chat to card 0
+        insert_chat_message(&conn, briefing_id, 0, "user", "Hello", None).unwrap();
+
+        // Add chat to card 2 (skipping 1)
+        insert_chat_message(&conn, briefing_id, 2, "user", "World", None).unwrap();
+
+        let cards = get_cards_with_chats(&conn).unwrap();
+        assert_eq!(cards.len(), 2);
+        assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 0));
+        assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 2));
+    }
 }

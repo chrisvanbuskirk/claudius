@@ -939,6 +939,60 @@ pub async fn run_research_now(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 // ============================================================================
+// Chat commands
+// ============================================================================
+
+use claudius::chat;
+use claudius::db::ChatMessage;
+
+/// Send a chat message about a specific briefing card and get Claude's response.
+#[tauri::command]
+pub async fn send_chat_message(
+    briefing_id: i64,
+    card_index: i32,
+    message: String,
+) -> Result<ChatMessage, String> {
+    // Get API key
+    let api_key = get_api_key_for_research()
+        .ok_or("No API key configured. Please set your Anthropic API key in Settings.")?;
+
+    // Get model from settings
+    let settings = read_settings()?;
+
+    // Send message and get response
+    let (response_message, _tokens) = chat::send_chat_message(
+        &api_key,
+        &settings.model,
+        briefing_id,
+        card_index,
+        &message,
+    ).await?;
+
+    Ok(response_message)
+}
+
+/// Get chat history for a specific card in a briefing.
+#[tauri::command]
+pub fn get_chat_history(briefing_id: i64, card_index: i32) -> Result<Vec<ChatMessage>, String> {
+    chat::get_chat_history(briefing_id, card_index)
+}
+
+/// Clear chat history for a specific card in a briefing.
+#[tauri::command]
+pub fn clear_chat_history(briefing_id: i64, card_index: i32) -> Result<usize, String> {
+    chat::clear_chat_history(briefing_id, card_index)
+}
+
+/// Get all cards (briefing_id, card_index) that have chat messages.
+#[tauri::command]
+pub fn get_cards_with_chats() -> Result<Vec<claudius::db::CardWithChat>, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::get_cards_with_chats(&conn)
+}
+
+// ============================================================================
 // Window control commands (for popover)
 // ============================================================================
 

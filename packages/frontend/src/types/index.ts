@@ -59,3 +59,18 @@ export interface BriefingFilters {
   date_to?: string;
   search_query?: string;
 }
+
+export interface ChatMessage {
+  id: number;
+  briefing_id: number;
+  card_index: number;
+  role: 'user' | 'assistant';
+  content: string;
+  tokens_used?: number;
+  created_at: string;
+}
+
+export interface CardWithChat {
+  briefing_id: number;
+  card_index: number;
+}

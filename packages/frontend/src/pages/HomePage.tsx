@@ -5,13 +5,14 @@ import { RefreshCw, Loader2, AlertCircle, Calendar, Play } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { BriefingCard } from '../components/BriefingCard';
+import { ChatPanel } from '../components/ChatPanel';
 import { MagneticButton } from '../components/MagneticButton';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { ResearchProgressCard } from '../components/ResearchProgressCard';
 import { useBriefings } from '../hooks/useTauri';
 import { useResearch } from '../contexts/ResearchContext';
 import { useResearchProgress } from '../hooks/useResearchProgress';
-import type { Briefing } from '../types';
+import type { Briefing, CardWithChat } from '../types';
 
 // Backend returns briefings with cards as JSON string
 interface BackendBriefing {
@@ -83,10 +84,31 @@ export function HomePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [runningResearch, setRunningResearch] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [activeChatBriefing, setActiveChatBriefing] = useState<Briefing | null>(null);
+  const [activeChatCardIndex, setActiveChatCardIndex] = useState<number>(0);
+  const [cardsWithChats, setCardsWithChats] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     getTodaysBriefings();
   }, [getTodaysBriefings]);
+
+  // Fetch which cards have chat history
+  useEffect(() => {
+    const fetchCardsWithChats = async () => {
+      try {
+        const cards = await invoke<CardWithChat[]>('get_cards_with_chats');
+        // Create a Set of "briefingId-cardIndex" strings for easy lookup
+        const cardKeys = new Set(cards.map(c => `${c.briefing_id}-${c.card_index}`));
+        setCardsWithChats(cardKeys);
+      } catch (err) {
+        console.error('Failed to fetch cards with chats:', err);
+        // On error, set empty set so no dots show
+        setCardsWithChats(new Set());
+      }
+    };
+    fetchCardsWithChats();
+  }, [rawBriefings, chatOpen]); // Refetch when briefings change or chat closes
 
   // Update purple border aura based on progress state
   useEffect(() => {
@@ -149,6 +171,19 @@ export function HomePage() {
       feedback_type: 'thumbs_down',
       timestamp: new Date().toISOString(),
     });
+  };
+
+  const handleOpenChat = (briefing: Briefing) => {
+    // Extract card index from the briefing id (format: "briefingId-cardIndex")
+    const parts = briefing.id.split('-');
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    setActiveChatBriefing(briefing);
+    setActiveChatCardIndex(cardIndex);
+    setChatOpen(true);
+  };
+
+  const handleCloseChat = () => {
+    setChatOpen(false);
   };
 
   const today = new Date();
@@ -286,6 +321,8 @@ export function HomePage() {
               briefing={briefing}
               onThumbsUp={() => handleThumbsUp(briefing.id)}
               onThumbsDown={() => handleThumbsDown(briefing.id)}
+              onOpenChat={() => handleOpenChat(briefing)}
+              hasChat={cardsWithChats.has(briefing.id)}
             />
           </motion.div>
         ))}
@@ -296,6 +333,15 @@ export function HomePage() {
           Showing {briefings.length} briefing{briefings.length !== 1 ? 's' : ''} for today
         </div>
       )}
+
+      {/* Chat Panel */}
+      <ChatPanel
+        briefingId={activeChatBriefing ? activeChatBriefing.id.split('-')[0] : null}
+        cardIndex={activeChatCardIndex}
+        briefingTitle={activeChatBriefing?.title || ''}
+        isOpen={chatOpen}
+        onClose={handleCloseChat}
+      />
     </div>
   );
 }

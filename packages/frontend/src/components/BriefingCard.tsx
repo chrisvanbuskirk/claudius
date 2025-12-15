@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
 
@@ -40,9 +40,11 @@ interface BriefingCardProps {
   briefing: Briefing;
   onThumbsUp: () => void;
   onThumbsDown: () => void;
+  onOpenChat: () => void;
+  hasChat?: boolean;
 }
 
-export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCardProps) {
+export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, hasChat }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
 
@@ -206,6 +208,17 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             aria-label="Thumbs down"
           >
             <ThumbsDown className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <button
+            onClick={onOpenChat}
+            className="relative p-2 rounded-lg transition-colors hover:bg-primary-100 dark:hover:bg-primary-900/30 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400"
+            aria-label="Chat about this briefing"
+          >
+            <MessageCircle className="w-4 h-4" />
+            {hasChat && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-purple-500 rounded-full" />
+            )}
           </button>
         </div>
 

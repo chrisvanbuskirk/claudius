@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Search, Filter, Calendar, Loader2, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
 // date-fns available for future use
 import { BriefingCard } from '../components/BriefingCard';
+import { ChatPanel } from '../components/ChatPanel';
 import { MagneticButton } from '../components/MagneticButton';
 import { useBriefings, useTopics } from '../hooks/useTauri';
-import type { BriefingFilters, Briefing } from '../types';
+import type { BriefingFilters, Briefing, CardWithChat } from '../types';
 
 // Backend returns briefings with cards as JSON string
 interface BackendBriefing {
@@ -35,6 +37,25 @@ export function HistoryPage() {
   const [filters, setFilters] = useState<BriefingFilters>({});
   const [searchQuery, setSearchQuery] = useState('');
   const initialLoadDone = useRef(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [activeChatBriefing, setActiveChatBriefing] = useState<Briefing | null>(null);
+  const [activeChatCardIndex, setActiveChatCardIndex] = useState<number>(0);
+  const [cardsWithChats, setCardsWithChats] = useState<Set<string>>(new Set());
+
+  // Fetch which cards have chat history
+  useEffect(() => {
+    const fetchCardsWithChats = async () => {
+      try {
+        const cards = await invoke<CardWithChat[]>('get_cards_with_chats');
+        // Create a Set of "briefingId-cardIndex" strings for easy lookup
+        const cardKeys = new Set(cards.map(c => `${c.briefing_id}-${c.card_index}`));
+        setCardsWithChats(cardKeys);
+      } catch (err) {
+        console.error('Failed to fetch cards with chats:', err);
+      }
+    };
+    fetchCardsWithChats();
+  }, [rawBriefings, chatOpen]); // Refetch when briefings change or chat closes
 
   // Parse the cards JSON and flatten into individual briefing cards
   const briefings = useMemo(() => {
@@ -164,6 +185,19 @@ export function HistoryPage() {
       feedback_type: 'thumbs_down',
       timestamp: new Date().toISOString(),
     });
+  };
+
+  const handleOpenChat = (briefing: Briefing) => {
+    // Extract card index from the briefing id (format: "briefingId-cardIndex")
+    const parts = briefing.id.split('-');
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    setActiveChatBriefing(briefing);
+    setActiveChatCardIndex(cardIndex);
+    setChatOpen(true);
+  };
+
+  const handleCloseChat = () => {
+    setChatOpen(false);
   };
 
   const activeFilterCount = Object.keys(filters).length + (searchQuery ? 1 : 0);
@@ -348,6 +382,8 @@ export function HistoryPage() {
               briefing={briefing}
               onThumbsUp={() => handleThumbsUp(briefing.id)}
               onThumbsDown={() => handleThumbsDown(briefing.id)}
+              onOpenChat={() => handleOpenChat(briefing)}
+              hasChat={cardsWithChats.has(briefing.id)}
             />
           </motion.div>
         ))}
@@ -358,6 +394,15 @@ export function HistoryPage() {
           Showing {filteredBriefings.length} briefing{filteredBriefings.length !== 1 ? 's' : ''}
         </div>
       )}
+
+      {/* Chat Panel */}
+      <ChatPanel
+        briefingId={activeChatBriefing ? activeChatBriefing.id.split('-')[0] : null}
+        cardIndex={activeChatCardIndex}
+        briefingTitle={activeChatBriefing?.title || ''}
+        isOpen={chatOpen}
+        onClose={handleCloseChat}
+      />
     </div>
   );
 }

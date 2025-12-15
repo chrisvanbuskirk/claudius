@@ -67,6 +67,11 @@ fn main() {
             // Research commands
             commands::trigger_research,
             commands::run_research_now,
+            // Chat commands
+            commands::send_chat_message,
+            commands::get_chat_history,
+            commands::clear_chat_history,
+            commands::get_cards_with_chats,
             // Legacy interest commands (for CLI compatibility)
             commands::get_interests,
             commands::add_interest,
