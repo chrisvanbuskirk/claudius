@@ -76,7 +76,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
               isUser ? 'text-gray-400' : 'text-gray-500 dark:text-gray-400'
             }`}
           >
-            {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
+            {formatDistanceToNow(new Date(message.created_at.endsWith('Z') ? message.created_at : message.created_at + 'Z'), { addSuffix: true })}
             {message.tokens_used && !isUser && (
               <span className="ml-2 opacity-60">
                 ({message.tokens_used} tokens)

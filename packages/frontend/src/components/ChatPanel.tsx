@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Send, Loader2, Trash2, Sparkles } from 'lucide-react';
+import { X, Send, Loader2, Trash2, Sparkles, Wrench } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 
@@ -13,7 +13,7 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ briefingId, cardIndex, briefingTitle, isOpen, onClose }: ChatPanelProps) {
-  const { messages, loading, sending, error, sendMessage, clearHistory } = useChat(briefingId, cardIndex);
+  const { messages, loading, sending, error, toolActivity, sendMessage, clearHistory } = useChat(briefingId, cardIndex);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -139,8 +139,17 @@ export function ChatPanel({ briefingId, cardIndex, briefingTitle, isOpen, onClos
                       animate={{ opacity: 1 }}
                       className="flex items-center gap-2 text-gray-400 text-sm"
                     >
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Claude is thinking...</span>
+                      {toolActivity ? (
+                        <>
+                          <Wrench className="w-4 h-4 animate-pulse text-purple-400" />
+                          <span className="text-purple-400">{toolActivity}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Claude is thinking...</span>
+                        </>
+                      )}
                     </motion.div>
                   )}
                   <div ref={messagesEndRef} />

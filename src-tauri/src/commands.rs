@@ -948,6 +948,7 @@ use claudius::db::ChatMessage;
 /// Send a chat message about a specific briefing card and get Claude's response.
 #[tauri::command]
 pub async fn send_chat_message(
+    app: tauri::AppHandle,
     briefing_id: i64,
     card_index: i32,
     message: String,
@@ -956,16 +957,18 @@ pub async fn send_chat_message(
     let api_key = get_api_key_for_research()
         .ok_or("No API key configured. Please set your Anthropic API key in Settings.")?;
 
-    // Get model from settings
+    // Get model and settings
     let settings = read_settings()?;
 
-    // Send message and get response
+    // Send message and get response (with tool calling enabled based on settings)
     let (response_message, _tokens) = chat::send_chat_message(
         &api_key,
         &settings.model,
         briefing_id,
         card_index,
         &message,
+        settings.enable_web_search,
+        Some(&app),
     ).await?;
 
     Ok(response_message)
