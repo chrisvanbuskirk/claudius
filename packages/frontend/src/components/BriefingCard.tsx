@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
 
@@ -41,10 +41,12 @@ interface BriefingCardProps {
   onThumbsUp: () => void;
   onThumbsDown: () => void;
   onOpenChat: () => void;
+  onBookmark: () => void;
   hasChat?: boolean;
+  isBookmarked?: boolean;
 }
 
-export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, hasChat }: BriefingCardProps) {
+export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, onBookmark, hasChat, isBookmarked }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
 
@@ -209,7 +211,17 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, h
           >
             <ThumbsDown className="w-4 h-4" />
           </button>
-          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <button
+            onClick={onBookmark}
+            className={`p-2 rounded-lg transition-colors ${
+              isBookmarked
+                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+            }`}
+            aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+          >
+            <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+          </button>
           <button
             onClick={onOpenChat}
             className="relative p-2 rounded-lg transition-colors hover:bg-primary-100 dark:hover:bg-primary-900/30 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400"

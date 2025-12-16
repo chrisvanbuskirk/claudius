@@ -72,6 +72,10 @@ fn main() {
             commands::get_chat_history,
             commands::clear_chat_history,
             commands::get_cards_with_chats,
+            // Bookmark commands
+            commands::toggle_bookmark,
+            commands::is_card_bookmarked,
+            commands::get_bookmarks,
             // Legacy interest commands (for CLI compatibility)
             commands::get_interests,
             commands::add_interest,

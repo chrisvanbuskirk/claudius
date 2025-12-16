@@ -6,6 +6,7 @@ import type {
   ResearchSettings,
   UserFeedback,
   BriefingFilters,
+  Bookmark,
 } from '../types';
 
 // Check if running inside Tauri - more robust check for Tauri 2.0
@@ -433,5 +434,70 @@ export function useApiKey() {
     error,
     checkApiKey,
     setApiKey,
+  };
+}
+
+// Bookmark Hook
+export function useBookmarks() {
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const getBookmarks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await safeInvoke<Bookmark[]>('get_bookmarks');
+      setBookmarks(result);
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch bookmarks';
+      setError(errorMessage);
+      setBookmarks([]);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const toggleBookmark = useCallback(async (briefingId: number, cardIndex: number) => {
+    try {
+      const isNowBookmarked = await safeInvoke<boolean>('toggle_bookmark', {
+        briefingId,
+        cardIndex,
+      });
+      // Refresh bookmarks list
+      await getBookmarks();
+      return isNowBookmarked;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to toggle bookmark';
+      setError(errorMessage);
+      return null;
+    }
+  }, [getBookmarks]);
+
+  const isBookmarked = useCallback(async (briefingId: number, cardIndex: number) => {
+    try {
+      return await safeInvoke<boolean>('is_card_bookmarked', {
+        briefingId,
+        cardIndex,
+      });
+    } catch (err) {
+      console.error('Failed to check bookmark status:', err);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    getBookmarks();
+  }, [getBookmarks]);
+
+  return {
+    bookmarks,
+    loading,
+    error,
+    getBookmarks,
+    toggleBookmark,
+    isBookmarked,
   };
 }

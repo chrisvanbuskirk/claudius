@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, History, Settings, Sparkles } from 'lucide-react';
+import { Home, History, Settings, Sparkles, Bookmark } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function Sidebar() {
@@ -8,6 +8,7 @@ export function Sidebar() {
   const navItems = [
     { path: '/', icon: Home, label: 'Today' },
     { path: '/history', icon: History, label: 'History' },
+    { path: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 

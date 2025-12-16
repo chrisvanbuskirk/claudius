@@ -752,7 +752,7 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             // Get the result - ensure cleanup happens regardless of success/failure
             let research_result = research_handle.await
                 .map_err(|e| format!("Research task failed: {}", e))
-                .and_then(|r| r.map_err(|e| e));
+                .and_then(|r| r);
 
             let duration = start.elapsed();
 
@@ -1155,13 +1155,11 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
                         } else {
                             println!("{} API key is configured", "✓".green());
                         }
+                    } else if json {
+                        println!("{}", serde_json::json!({ "api_key_set": false }));
                     } else {
-                        if json {
-                            println!("{}", serde_json::json!({ "api_key_set": false }));
-                        } else {
-                            println!("{} No API key configured", "✗".red());
-                            println!("\nSet with: claudius config api-key set <YOUR_KEY>");
-                        }
+                        println!("{} No API key configured", "✗".red());
+                        println!("\nSet with: claudius config api-key set <YOUR_KEY>");
                     }
                 }
 

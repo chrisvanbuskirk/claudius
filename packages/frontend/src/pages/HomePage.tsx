@@ -9,7 +9,7 @@ import { ChatPanel } from '../components/ChatPanel';
 import { MagneticButton } from '../components/MagneticButton';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { ResearchProgressCard } from '../components/ResearchProgressCard';
-import { useBriefings } from '../hooks/useTauri';
+import { useBriefings, useBookmarks } from '../hooks/useTauri';
 import { useResearch } from '../contexts/ResearchContext';
 import { useResearchProgress } from '../hooks/useResearchProgress';
 import type { Briefing, CardWithChat } from '../types';
@@ -38,6 +38,7 @@ interface BriefingCardData {
 
 export function HomePage() {
   const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+  const { bookmarks, toggleBookmark } = useBookmarks();
   const { setIsResearchRunning } = useResearch();
   const progress = useResearchProgress();
 
@@ -186,6 +187,20 @@ export function HomePage() {
     setChatOpen(false);
   };
 
+  const handleBookmark = async (briefingId: string) => {
+    const parts = briefingId.split('-');
+    const numericBriefingId = parseInt(parts[0], 10);
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    await toggleBookmark(numericBriefingId, cardIndex);
+  };
+
+  const isCardBookmarked = (briefingId: string) => {
+    const parts = briefingId.split('-');
+    const numericBriefingId = parseInt(parts[0], 10);
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    return bookmarks.some(b => b.briefing_id === numericBriefingId && b.card_index === cardIndex);
+  };
+
   const today = new Date();
   const formattedDate = format(today, 'EEEE, MMMM d, yyyy');
 
@@ -322,7 +337,9 @@ export function HomePage() {
               onThumbsUp={() => handleThumbsUp(briefing.id)}
               onThumbsDown={() => handleThumbsDown(briefing.id)}
               onOpenChat={() => handleOpenChat(briefing)}
+              onBookmark={() => handleBookmark(briefing.id)}
               hasChat={cardsWithChats.has(briefing.id)}
+              isBookmarked={isCardBookmarked(briefing.id)}
             />
           </motion.div>
         ))}

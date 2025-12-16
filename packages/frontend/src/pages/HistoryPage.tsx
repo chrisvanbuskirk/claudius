@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { BriefingCard } from '../components/BriefingCard';
 import { ChatPanel } from '../components/ChatPanel';
 import { MagneticButton } from '../components/MagneticButton';
-import { useBriefings, useTopics } from '../hooks/useTauri';
+import { useBriefings, useTopics, useBookmarks } from '../hooks/useTauri';
 import type { BriefingFilters, Briefing, CardWithChat } from '../types';
 
 // Backend returns briefings with cards as JSON string
@@ -33,6 +33,7 @@ interface BriefingCardData {
 export function HistoryPage() {
   const { briefings: rawBriefings, loading, error, searchBriefings, submitFeedback } = useBriefings();
   const { topics } = useTopics();
+  const { bookmarks, toggleBookmark } = useBookmarks();
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<BriefingFilters>({});
   const [searchQuery, setSearchQuery] = useState('');
@@ -198,6 +199,20 @@ export function HistoryPage() {
 
   const handleCloseChat = () => {
     setChatOpen(false);
+  };
+
+  const handleBookmark = async (briefingId: string) => {
+    const parts = briefingId.split('-');
+    const numericBriefingId = parseInt(parts[0], 10);
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    await toggleBookmark(numericBriefingId, cardIndex);
+  };
+
+  const isCardBookmarked = (briefingId: string) => {
+    const parts = briefingId.split('-');
+    const numericBriefingId = parseInt(parts[0], 10);
+    const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    return bookmarks.some(b => b.briefing_id === numericBriefingId && b.card_index === cardIndex);
   };
 
   const activeFilterCount = Object.keys(filters).length + (searchQuery ? 1 : 0);
@@ -383,7 +398,9 @@ export function HistoryPage() {
               onThumbsUp={() => handleThumbsUp(briefing.id)}
               onThumbsDown={() => handleThumbsDown(briefing.id)}
               onOpenChat={() => handleOpenChat(briefing)}
+              onBookmark={() => handleBookmark(briefing.id)}
               hasChat={cardsWithChats.has(briefing.id)}
+              isBookmarked={isCardBookmarked(briefing.id)}
             />
           </motion.div>
         ))}

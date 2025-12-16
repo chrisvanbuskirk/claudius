@@ -74,3 +74,10 @@ export interface CardWithChat {
   briefing_id: number;
   card_index: number;
 }
+
+export interface Bookmark {
+  id: number;
+  briefing_id: number;
+  card_index: number;
+  created_at: string;
+}

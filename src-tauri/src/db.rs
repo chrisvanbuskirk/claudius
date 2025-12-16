@@ -335,6 +335,81 @@ pub fn get_cards_with_chats(conn: &Connection) -> std::result::Result<Vec<CardWi
 }
 
 // ============================================================================
+// Bookmark CRUD operations
+// ============================================================================
+
+/// Bookmark struct for database operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bookmark {
+    pub id: i64,
+    pub briefing_id: i64,
+    pub card_index: i32,
+    pub created_at: String,
+}
+
+/// Add a bookmark for a card (idempotent - ignores if already exists)
+pub fn add_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<(), String> {
+    conn.execute(
+        "INSERT OR IGNORE INTO bookmarks (briefing_id, card_index) VALUES (?1, ?2)",
+        params![briefing_id, card_index],
+    ).map_err(|e| format!("Failed to add bookmark: {}", e))?;
+    Ok(())
+}
+
+/// Remove a bookmark for a card
+pub fn remove_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
+    let rows_affected = conn.execute(
+        "DELETE FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
+        params![briefing_id, card_index],
+    ).map_err(|e| format!("Failed to remove bookmark: {}", e))?;
+    Ok(rows_affected > 0)
+}
+
+/// Check if a card is bookmarked
+pub fn is_bookmarked(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
+    let count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
+        params![briefing_id, card_index],
+        |row| row.get(0),
+    ).map_err(|e| format!("Failed to check bookmark: {}", e))?;
+    Ok(count > 0)
+}
+
+/// Get all bookmarks ordered by creation time (newest first)
+pub fn get_all_bookmarks(conn: &Connection) -> std::result::Result<Vec<Bookmark>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, briefing_id, card_index, created_at
+         FROM bookmarks
+         ORDER BY created_at DESC"
+    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let bookmarks = stmt.query_map([], |row| {
+        Ok(Bookmark {
+            id: row.get(0)?,
+            briefing_id: row.get(1)?,
+            card_index: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    }).map_err(|e| format!("Query failed: {}", e))?
+    .collect::<std::result::Result<Vec<_>, _>>()
+    .map_err(|e| format!("Failed to collect results: {}", e))?;
+
+    Ok(bookmarks)
+}
+
+/// Toggle bookmark status for a card (add if not exists, remove if exists)
+/// Returns true if bookmark was added, false if removed
+pub fn toggle_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
+    if is_bookmarked(conn, briefing_id, card_index)? {
+        remove_bookmark(conn, briefing_id, card_index)?;
+        Ok(false)
+    } else {
+        add_bookmark(conn, briefing_id, card_index)?;
+        Ok(true)
+    }
+}
+
+// ============================================================================
 // Chat messages migration (add card_index column)
 // ============================================================================
 
@@ -663,5 +738,124 @@ mod tests {
         assert_eq!(cards.len(), 2);
         assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 0));
         assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 2));
+    }
+
+    // ========================================================================
+    // Bookmark tests
+    // ========================================================================
+
+    #[test]
+    fn test_add_bookmark() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Add bookmark
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+
+        // Verify it exists
+        assert!(is_bookmarked(&conn, briefing_id, 0).unwrap());
+    }
+
+    #[test]
+    fn test_add_bookmark_idempotent() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Add bookmark twice (should not error)
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+
+        // Should still only have one bookmark
+        let bookmarks = get_all_bookmarks(&conn).unwrap();
+        assert_eq!(bookmarks.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_bookmark() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Add then remove bookmark
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        let removed = remove_bookmark(&conn, briefing_id, 0).unwrap();
+
+        assert!(removed);
+        assert!(!is_bookmarked(&conn, briefing_id, 0).unwrap());
+    }
+
+    #[test]
+    fn test_remove_nonexistent_bookmark() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Remove bookmark that doesn't exist
+        let removed = remove_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn test_is_bookmarked() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Not bookmarked initially
+        assert!(!is_bookmarked(&conn, briefing_id, 0).unwrap());
+
+        // Add bookmark
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(is_bookmarked(&conn, briefing_id, 0).unwrap());
+
+        // Different card index should not be bookmarked
+        assert!(!is_bookmarked(&conn, briefing_id, 1).unwrap());
+    }
+
+    #[test]
+    fn test_get_all_bookmarks() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // No bookmarks initially
+        let bookmarks = get_all_bookmarks(&conn).unwrap();
+        assert!(bookmarks.is_empty());
+
+        // Add some bookmarks
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        add_bookmark(&conn, briefing_id, 2).unwrap();
+
+        let bookmarks = get_all_bookmarks(&conn).unwrap();
+        assert_eq!(bookmarks.len(), 2);
+    }
+
+    #[test]
+    fn test_toggle_bookmark() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Toggle on (add)
+        let added = toggle_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(added);
+        assert!(is_bookmarked(&conn, briefing_id, 0).unwrap());
+
+        // Toggle off (remove)
+        let added = toggle_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(!added);
+        assert!(!is_bookmarked(&conn, briefing_id, 0).unwrap());
+    }
+
+    #[test]
+    fn test_bookmarks_cascade_delete() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Add bookmark
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(is_bookmarked(&conn, briefing_id, 0).unwrap());
+
+        // Delete the briefing (should cascade to bookmarks)
+        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id]).unwrap();
+
+        // Bookmark should be gone
+        let bookmarks = get_all_bookmarks(&conn).unwrap();
+        assert!(bookmarks.is_empty());
     }
 }

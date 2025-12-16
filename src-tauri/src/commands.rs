@@ -996,6 +996,39 @@ pub fn get_cards_with_chats() -> Result<Vec<claudius::db::CardWithChat>, String>
 }
 
 // ============================================================================
+// Bookmark commands
+// ============================================================================
+
+use claudius::db::Bookmark;
+
+/// Toggle bookmark status for a card. Returns true if bookmarked, false if unbookmarked.
+#[tauri::command]
+pub fn toggle_bookmark(briefing_id: i64, card_index: i32) -> Result<bool, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::toggle_bookmark(&conn, briefing_id, card_index)
+}
+
+/// Check if a card is bookmarked.
+#[tauri::command]
+pub fn is_card_bookmarked(briefing_id: i64, card_index: i32) -> Result<bool, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::is_bookmarked(&conn, briefing_id, card_index)
+}
+
+/// Get all bookmarks.
+#[tauri::command]
+pub fn get_bookmarks() -> Result<Vec<Bookmark>, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::get_all_bookmarks(&conn)
+}
+
+// ============================================================================
 // Window control commands (for popover)
 // ============================================================================
 
