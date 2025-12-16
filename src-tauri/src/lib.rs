@@ -11,6 +11,7 @@ pub mod research_state;
 pub mod mcp_client;
 pub mod research_log;
 pub mod chat;
+pub mod housekeeping;
 
 // Re-export key types for convenience
 pub use db::{Topic, ChatMessage};

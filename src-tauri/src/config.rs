@@ -31,6 +31,8 @@ pub struct ResearchSettings {
     pub notification_sound: bool,
     #[serde(default)]
     pub enable_web_search: bool,
+    #[serde(default)]
+    pub retention_days: Option<i32>,  // None = never delete
 }
 
 fn default_notification_sound() -> bool {
@@ -46,6 +48,7 @@ impl Default for ResearchSettings {
             enable_notifications: true,
             notification_sound: true,
             enable_web_search: false,
+            retention_days: None,
         }
     }
 }

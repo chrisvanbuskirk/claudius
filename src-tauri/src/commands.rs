@@ -44,6 +44,8 @@ pub struct ResearchSettings {
     pub notification_sound: bool,
     #[serde(default)]
     pub enable_web_search: bool,
+    #[serde(default)]
+    pub retention_days: Option<i32>,  // None = never delete, Some(7/14/30/90)
 }
 
 fn default_notification_sound() -> bool {
@@ -128,6 +130,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             enable_notifications: true,
             notification_sound: true,
             enable_web_search: false,
+            retention_days: None,  // Never delete by default
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -381,6 +384,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         enable_notifications: true,
         notification_sound: true,
         enable_web_search: false,
+        retention_days: None,
     });
 
     // Get API key from file-based storage
@@ -690,6 +694,77 @@ pub fn get_settings() -> Result<ResearchSettings, String> {
 pub fn update_settings(settings: ResearchSettings) -> Result<ResearchSettings, String> {
     write_settings(&settings)?;
     Ok(settings)
+}
+
+// ============================================================================
+// Housekeeping / Cleanup commands
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HousekeepingResult {
+    pub deleted_count: usize,
+    pub remaining_count: usize,
+}
+
+/// Delete a specific briefing by ID
+#[tauri::command]
+pub fn delete_briefing(id: i64) -> Result<bool, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::delete_briefing(&conn, id)
+}
+
+/// Check if a briefing has any bookmarked cards
+#[tauri::command]
+pub fn briefing_has_bookmarks(briefing_id: i64) -> Result<bool, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::briefing_has_bookmarks(&conn, briefing_id)
+}
+
+/// Run housekeeping cleanup based on retention_days setting
+#[tauri::command]
+pub fn run_housekeeping() -> Result<HousekeepingResult, String> {
+    let settings = read_settings()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+
+    let deleted_count = if let Some(days) = settings.retention_days {
+        db::cleanup_old_briefings(&conn, days)?
+    } else {
+        0  // retention_days = None means never delete
+    };
+
+    let remaining_count = db::count_briefings(&conn)?;
+
+    Ok(HousekeepingResult {
+        deleted_count,
+        remaining_count,
+    })
+}
+
+/// Get count of briefings that would be deleted for a given retention period
+#[tauri::command]
+pub fn get_cleanup_preview(days: i32) -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_cleanup_candidates(&conn, days)
+}
+
+/// Get total count of briefings
+#[tauri::command]
+pub fn get_briefing_count() -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_briefings(&conn)
+}
+
+/// Get total count of cards across all briefings
+#[tauri::command]
+pub fn get_card_count() -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_cards(&conn)
 }
 
 // ============================================================================

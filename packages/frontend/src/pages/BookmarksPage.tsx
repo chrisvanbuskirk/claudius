@@ -154,6 +154,18 @@ export function BookmarksPage() {
     await toggleBookmark(numericBriefingId, cardIndex);
   };
 
+  const handleDelete = async (briefingId: string) => {
+    const parts = briefingId.split('-');
+    const numericBriefingId = parseInt(parts[0], 10);
+    try {
+      await invoke('delete_briefing', { id: numericBriefingId });
+      // Refresh the bookmarks list after deletion
+      await getBookmarks();
+    } catch (err) {
+      console.error('Failed to delete briefing:', err);
+    }
+  };
+
   const handleOpenChat = (briefing: Briefing) => {
     const parts = briefing.id.split('-');
     const cardIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
@@ -224,6 +236,7 @@ export function BookmarksPage() {
                 onThumbsDown={() => handleThumbsDown(briefing.id)}
                 onOpenChat={() => handleOpenChat(briefing)}
                 onBookmark={() => handleBookmark(briefing.id)}
+                onDelete={() => handleDelete(briefing.id)}
                 hasChat={cardsWithChats.has(chatKey)}
                 isBookmarked={true}
               />

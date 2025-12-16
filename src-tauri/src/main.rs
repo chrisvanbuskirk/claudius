@@ -9,6 +9,8 @@ mod research_state;
 mod mcp_client;
 mod research_log;
 mod updater;
+mod housekeeping;
+mod config;
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -76,6 +78,13 @@ fn main() {
             commands::toggle_bookmark,
             commands::is_card_bookmarked,
             commands::get_bookmarks,
+            // Housekeeping commands
+            commands::delete_briefing,
+            commands::briefing_has_bookmarks,
+            commands::run_housekeeping,
+            commands::get_cleanup_preview,
+            commands::get_briefing_count,
+            commands::get_card_count,
             // Legacy interest commands (for CLI compatibility)
             commands::get_interests,
             commands::add_interest,
@@ -106,6 +115,9 @@ fn main() {
 
             // Initialize database
             db::init_database(&app_handle)?;
+
+            // Run housekeeping cleanup (non-blocking, logs errors)
+            housekeeping::run_startup_cleanup();
 
             // Initialize system tray (kept for Windows/Linux where it works better)
             if let Err(e) = tray::init_tray(&app_handle) {

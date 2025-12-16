@@ -410,6 +410,93 @@ pub fn toggle_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> 
 }
 
 // ============================================================================
+// Housekeeping / Cleanup functions
+// ============================================================================
+
+/// Delete briefings older than `days`, excluding any briefings that have bookmarked cards.
+/// Returns the count of deleted briefings.
+pub fn cleanup_old_briefings(conn: &Connection, days: i32) -> std::result::Result<usize, String> {
+    let deleted = conn.execute(
+        "DELETE FROM briefings
+         WHERE date < date('now', '-' || ?1 || ' days')
+           AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)",
+        [days],
+    ).map_err(|e| format!("Failed to cleanup old briefings: {}", e))?;
+
+    Ok(deleted)
+}
+
+/// Delete a specific briefing by ID.
+/// Returns true if a briefing was deleted, false if not found.
+pub fn delete_briefing(conn: &Connection, id: i64) -> std::result::Result<bool, String> {
+    let deleted = conn.execute(
+        "DELETE FROM briefings WHERE id = ?1",
+        [id],
+    ).map_err(|e| format!("Failed to delete briefing: {}", e))?;
+
+    Ok(deleted > 0)
+}
+
+/// Get count of briefings that would be deleted by cleanup (for UI preview).
+/// Excludes briefings with bookmarked cards.
+pub fn count_cleanup_candidates(conn: &Connection, days: i32) -> std::result::Result<usize, String> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM briefings
+         WHERE date < date('now', '-' || ?1 || ' days')
+           AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)",
+        [days],
+        |row| row.get(0),
+    ).map_err(|e| format!("Failed to count cleanup candidates: {}", e))?;
+
+    Ok(count as usize)
+}
+
+/// Get total count of briefings in database.
+pub fn count_briefings(conn: &Connection) -> std::result::Result<usize, String> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM briefings",
+        [],
+        |row| row.get(0),
+    ).map_err(|e| format!("Failed to count briefings: {}", e))?;
+
+    Ok(count as usize)
+}
+
+/// Count total cards across all briefings.
+pub fn count_cards(conn: &Connection) -> std::result::Result<usize, String> {
+    let mut stmt = conn.prepare("SELECT cards FROM briefings")
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let mut total_cards = 0usize;
+    let rows = stmt.query_map([], |row| {
+        let cards_json: String = row.get(0)?;
+        Ok(cards_json)
+    }).map_err(|e| format!("Failed to query briefings: {}", e))?;
+
+    for row in rows {
+        if let Ok(cards_json) = row {
+            // Parse JSON array and count elements
+            if let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards_json) {
+                total_cards += cards.len();
+            }
+        }
+    }
+
+    Ok(total_cards)
+}
+
+/// Check if a briefing has any bookmarked cards.
+pub fn briefing_has_bookmarks(conn: &Connection, briefing_id: i64) -> std::result::Result<bool, String> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1",
+        [briefing_id],
+        |row| row.get(0),
+    ).map_err(|e| format!("Failed to check briefing bookmarks: {}", e))?;
+
+    Ok(count > 0)
+}
+
+// ============================================================================
 // Chat messages migration (add card_index column)
 // ============================================================================
 
@@ -857,5 +944,164 @@ mod tests {
         // Bookmark should be gone
         let bookmarks = get_all_bookmarks(&conn).unwrap();
         assert!(bookmarks.is_empty());
+    }
+
+    // ========================================================================
+    // Housekeeping / Cleanup tests
+    // ========================================================================
+
+    #[test]
+    fn test_delete_briefing() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // Briefing exists
+        assert_eq!(count_briefings(&conn).unwrap(), 1);
+
+        // Delete it
+        let deleted = delete_briefing(&conn, briefing_id).unwrap();
+        assert!(deleted);
+
+        // Gone
+        assert_eq!(count_briefings(&conn).unwrap(), 0);
+
+        // Deleting again returns false
+        let deleted = delete_briefing(&conn, briefing_id).unwrap();
+        assert!(!deleted);
+    }
+
+    #[test]
+    fn test_count_briefings() {
+        let conn = setup_test_db();
+
+        assert_eq!(count_briefings(&conn).unwrap(), 0);
+
+        create_test_briefing(&conn);
+        assert_eq!(count_briefings(&conn).unwrap(), 1);
+
+        create_test_briefing(&conn);
+        assert_eq!(count_briefings(&conn).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_count_cards() {
+        let conn = setup_test_db();
+
+        // No briefings = 0 cards
+        assert_eq!(count_cards(&conn).unwrap(), 0);
+
+        // Create briefing with 2 cards
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Test', ?)",
+            [r#"[{"title":"Card 1"},{"title":"Card 2"}]"#],
+        ).unwrap();
+        assert_eq!(count_cards(&conn).unwrap(), 2);
+
+        // Create briefing with 3 cards
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Test 2', ?)",
+            [r#"[{"title":"A"},{"title":"B"},{"title":"C"}]"#],
+        ).unwrap();
+        assert_eq!(count_cards(&conn).unwrap(), 5); // 2 + 3
+
+        // Empty cards array still counts as 0
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Empty', '[]')",
+            [],
+        ).unwrap();
+        assert_eq!(count_cards(&conn).unwrap(), 5); // Still 5
+    }
+
+    #[test]
+    fn test_briefing_has_bookmarks() {
+        let conn = setup_test_db();
+        let briefing_id = create_test_briefing(&conn);
+
+        // No bookmarks
+        assert!(!briefing_has_bookmarks(&conn, briefing_id).unwrap());
+
+        // Add bookmark
+        add_bookmark(&conn, briefing_id, 0).unwrap();
+        assert!(briefing_has_bookmarks(&conn, briefing_id).unwrap());
+    }
+
+    #[test]
+    fn test_cleanup_old_briefings_preserves_bookmarked() {
+        let conn = setup_test_db();
+
+        // Create an old briefing (100 days ago)
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now', '-100 days'), 'Old', '[]')",
+            [],
+        ).unwrap();
+        let old_id: i64 = conn.last_insert_rowid();
+
+        // Create a recent briefing (today)
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Recent', '[]')",
+            [],
+        ).unwrap();
+        let recent_id: i64 = conn.last_insert_rowid();
+
+        assert_eq!(count_briefings(&conn).unwrap(), 2);
+
+        // Bookmark the old briefing
+        add_bookmark(&conn, old_id, 0).unwrap();
+
+        // Cleanup briefings older than 30 days
+        let deleted = cleanup_old_briefings(&conn, 30).unwrap();
+        assert_eq!(deleted, 0);  // Old one is bookmarked, so not deleted
+
+        assert_eq!(count_briefings(&conn).unwrap(), 2);
+
+        // Remove bookmark and try again
+        remove_bookmark(&conn, old_id, 0).unwrap();
+        let deleted = cleanup_old_briefings(&conn, 30).unwrap();
+        assert_eq!(deleted, 1);  // Now it gets deleted
+
+        // Only recent briefing remains
+        assert_eq!(count_briefings(&conn).unwrap(), 1);
+
+        // Verify the recent one is still there
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM briefings WHERE id = ?1",
+            [recent_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn test_count_cleanup_candidates() {
+        let conn = setup_test_db();
+
+        // Create old briefing (100 days ago)
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now', '-100 days'), 'Old1', '[]')",
+            [],
+        ).unwrap();
+        let old_id: i64 = conn.last_insert_rowid();
+
+        // Create another old briefing (50 days ago)
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now', '-50 days'), 'Old2', '[]')",
+            [],
+        ).unwrap();
+
+        // Create recent briefing (today)
+        conn.execute(
+            "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Recent', '[]')",
+            [],
+        ).unwrap();
+
+        // 2 candidates for 30-day cleanup (100-day and 50-day old)
+        assert_eq!(count_cleanup_candidates(&conn, 30).unwrap(), 2);
+
+        // 1 candidate for 60-day cleanup (only 100-day old)
+        assert_eq!(count_cleanup_candidates(&conn, 60).unwrap(), 1);
+
+        // Bookmark oldest one - should reduce count
+        add_bookmark(&conn, old_id, 0).unwrap();
+        assert_eq!(count_cleanup_candidates(&conn, 30).unwrap(), 1);
     }
 }

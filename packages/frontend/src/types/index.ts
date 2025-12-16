@@ -37,6 +37,7 @@ export interface ResearchSettings {
   enable_notifications: boolean;
   notification_sound: boolean;
   enable_web_search?: boolean;
+  retention_days: number | null;  // null = never delete
 }
 
 export interface UserFeedback {
