@@ -10,10 +10,13 @@ pub mod research;
 pub mod research_state;
 pub mod mcp_client;
 pub mod research_log;
+pub mod chat;
+pub mod housekeeping;
 
 // Re-export key types for convenience
-pub use db::Topic;
+pub use db::{Topic, ChatMessage};
 pub use research::{ResearchAgent, ResearchResult, BriefingCard};
+pub use chat::{send_chat_message, get_chat_history, clear_chat_history};
 pub use research_state::ResearchState;
 pub use config::{
     Briefing, MCPServer, MCPServersConfig, ResearchSettings,

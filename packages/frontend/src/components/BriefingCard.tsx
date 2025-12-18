@@ -1,8 +1,79 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
+
+// Delete Confirmation Dialog
+function DeleteConfirmDialog({
+  isOpen,
+  isBookmarked,
+  onConfirm,
+  onCancel,
+}: {
+  isOpen: boolean;
+  isBookmarked: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onCancel}
+        />
+        <motion.div
+          className="relative z-10 bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700"
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+        >
+          <div className="flex items-start gap-4">
+            <div className={`p-2 rounded-full ${isBookmarked ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+              <AlertTriangle className={`w-6 h-6 ${isBookmarked ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Delete Briefing Card
+              </h3>
+              {isBookmarked ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  <span className="text-amber-600 dark:text-amber-400 font-medium">This card is bookmarked.</span> Are you sure you want to delete it? This action cannot be undone.
+                </p>
+              ) : (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Are you sure you want to delete this card? This will also delete any chat history associated with it.
+                </p>
+              )}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={onCancel}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={onConfirm}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 // Parse date string as local time (not UTC)
 // "2025-12-08" should be today in local time, not yesterday
@@ -38,13 +109,29 @@ function getSourceDisplay(source: string): { href: string | null; text: string }
 
 interface BriefingCardProps {
   briefing: Briefing;
-  onThumbsUp: () => void;
-  onThumbsDown: () => void;
+  // Thumbs up/down commented out - not currently used for anything
+  // onThumbsUp: () => void;
+  // onThumbsDown: () => void;
+  onOpenChat: () => void;
+  onBookmark: () => void;
+  onDelete?: () => void;
+  hasChat?: boolean;
+  isBookmarked?: boolean;
 }
 
-export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCardProps) {
+export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenChat, onBookmark, onDelete, hasChat, isBookmarked }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
+  // const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleDelete = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    setShowDeleteConfirm(false);
+    onDelete?.();
+  };
 
   // Default values for optional fields
   const relevance = (briefing.relevance || 'medium') as 'high' | 'medium' | 'low';
@@ -57,6 +144,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
     low: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
   };
 
+  /* Thumbs handlers commented out - not currently used
   const handleThumbsUp = () => {
     if (feedbackGiven !== 'up') {
       setFeedbackGiven('up');
@@ -70,10 +158,12 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
       onThumbsDown();
     }
   };
+  */
 
   return (
+    <>
     <motion.div
-      className="glass-card p-6"
+      className="glass-card p-6 relative"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{
@@ -82,6 +172,17 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
       }}
       transition={{ duration: 0.2 }}
     >
+      {/* Delete button - always visible but subtle, more prominent on hover */}
+      {onDelete && (
+        <button
+          onClick={handleDelete}
+          className="absolute top-3 right-3 p-1.5 rounded-lg bg-gray-500/20 hover:bg-red-500/30 text-gray-400 hover:text-red-400 transition-colors z-10"
+          aria-label="Delete card"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
@@ -185,6 +286,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
 
       <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
+          {/* Thumbs up/down buttons commented out - not currently used for anything
           <button
             onClick={handleThumbsUp}
             className={`p-2 rounded-lg transition-colors ${
@@ -207,12 +309,35 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
           >
             <ThumbsDown className="w-4 h-4" />
           </button>
+          */}
+          <button
+            onClick={onBookmark}
+            className={`p-2 rounded-lg transition-colors ${
+              isBookmarked
+                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+            }`}
+            aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+          >
+            <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+          </button>
+          <button
+            onClick={onOpenChat}
+            className={`p-2 rounded-lg transition-colors ${
+              hasChat
+                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                : 'hover:bg-primary-100 dark:hover:bg-primary-900/30 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400'
+            }`}
+            aria-label="Chat about this briefing"
+          >
+            <MessageCircle className={`w-4 h-4 ${hasChat ? 'fill-current' : ''}`} />
+          </button>
         </div>
 
         {(sources.length > 3 || briefing.detailed_content) && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-primary-500/20 text-primary-400 hover:bg-primary-500/30 hover:text-primary-300 transition-colors"
           >
             {expanded ? (
               <>
@@ -222,12 +347,21 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown }: BriefingCar
             ) : (
               <>
                 <ChevronDown className="w-4 h-4" />
-                {briefing.detailed_content ? 'Show details' : 'Show more sources'}
+                {briefing.detailed_content ? 'Show research' : 'Show more sources'}
               </>
             )}
           </button>
         )}
       </div>
     </motion.div>
+
+    {/* Delete Confirmation Dialog */}
+    <DeleteConfirmDialog
+      isOpen={showDeleteConfirm}
+      isBookmarked={isBookmarked ?? false}
+      onConfirm={confirmDelete}
+      onCancel={() => setShowDeleteConfirm(false)}
+    />
+    </>
   );
 }

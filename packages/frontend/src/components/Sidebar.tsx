@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, History, Settings, Sparkles } from 'lucide-react';
+import { Home, History, Settings, Sparkles, Bookmark } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function Sidebar() {
@@ -8,6 +8,7 @@ export function Sidebar() {
   const navItems = [
     { path: '/', icon: Home, label: 'Today' },
     { path: '/history', icon: History, label: 'History' },
+    { path: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
@@ -64,7 +65,7 @@ export function Sidebar() {
 
       <div className="p-4 border-t border-white/10">
         <div className="text-xs text-gray-400 dark:text-gray-500 text-center">
-          v0.3.2
+          v0.4.0
         </div>
       </div>
     </aside>

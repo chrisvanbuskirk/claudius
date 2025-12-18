@@ -51,6 +51,23 @@ claudius/
 - **Database**: SQLite via sql.js (browser) and rusqlite (Rust)
 - **Testing**: Vitest, React Testing Library, Cargo Test
 
+## UI Notes
+
+### Commented Out: Thumbs Up/Down Buttons
+
+The thumbs up/down feedback buttons on briefing cards are **commented out** (not deleted). They were removed because:
+- Unlike ChatGPT/Claude Desktop, this app doesn't use feedback for RLHF training
+- The feedback data wasn't being used for anything meaningful
+- Bookmarks already serve the "I want to keep this" purpose
+
+If you want to re-enable them, search for "Thumbs handlers commented out" in:
+- `packages/frontend/src/components/BriefingCard.tsx`
+- `packages/frontend/src/pages/HomePage.tsx`
+- `packages/frontend/src/pages/HistoryPage.tsx`
+- `packages/frontend/src/pages/BookmarksPage.tsx`
+
+The feedback database table and Tauri commands still exist if needed.
+
 ## Claude Models
 
 **IMPORTANT**: This project uses Claude 4.5 models. See https://platform.claude.com/docs/en/about-claude/models/overview

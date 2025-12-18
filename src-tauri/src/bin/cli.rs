@@ -74,6 +74,12 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    /// Database housekeeping and cleanup
+    Housekeeping {
+        #[command(subcommand)]
+        action: HousekeepingAction,
+    },
 }
 
 // ============================================================================
@@ -250,6 +256,24 @@ enum ApiKeyAction {
 }
 
 // ============================================================================
+// Housekeeping Commands
+// ============================================================================
+
+#[derive(Subcommand)]
+enum HousekeepingAction {
+    /// Run cleanup based on retention settings
+    Run {
+        /// Dry run (show what would be deleted without deleting)
+        #[arg(short, long)]
+        dry_run: bool,
+    },
+    /// Show housekeeping status (briefing counts, etc.)
+    Status,
+    /// Optimize database (run VACUUM)
+    Optimize,
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -268,6 +292,7 @@ async fn main() {
         Commands::Research { action } => handle_research(action, cli.json).await,
         Commands::Mcp { action } => handle_mcp(action, cli.json).await,
         Commands::Config { action } => handle_config(action, cli.json).await,
+        Commands::Housekeeping { action } => handle_housekeeping(action, cli.json).await,
     };
 
     if let Err(e) = result {
@@ -752,7 +777,7 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             // Get the result - ensure cleanup happens regardless of success/failure
             let research_result = research_handle.await
                 .map_err(|e| format!("Research task failed: {}", e))
-                .and_then(|r| r.map_err(|e| e));
+                .and_then(|r| r);
 
             let duration = start.elapsed();
 
@@ -1155,13 +1180,11 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
                         } else {
                             println!("{} API key is configured", "✓".green());
                         }
+                    } else if json {
+                        println!("{}", serde_json::json!({ "api_key_set": false }));
                     } else {
-                        if json {
-                            println!("{}", serde_json::json!({ "api_key_set": false }));
-                        } else {
-                            println!("{} No API key configured", "✗".red());
-                            println!("\nSet with: claudius config api-key set <YOUR_KEY>");
-                        }
+                        println!("{} No API key configured", "✗".red());
+                        println!("\nSet with: claudius config api-key set <YOUR_KEY>");
                     }
                 }
 
@@ -1185,6 +1208,177 @@ async fn handle_config(action: ConfigAction, json: bool) -> Result<(), String> {
                         println!("{} API key cleared", "✓".green());
                     }
                 }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle housekeeping subcommands
+async fn handle_housekeeping(action: HousekeepingAction, json: bool) -> Result<(), String> {
+    use claudius::housekeeping;
+    use claudius::db;
+
+    match action {
+        HousekeepingAction::Run { dry_run } => {
+            if dry_run {
+                // Show what would be deleted
+                let settings = read_settings()?;
+
+                match settings.retention_days {
+                    Some(days) => {
+                        let conn = db::get_connection()
+                            .map_err(|e| format!("Database connection failed: {}", e))?;
+                        let count = db::count_cleanup_candidates(&conn, days)?;
+
+                        if json {
+                            println!("{}", serde_json::json!({
+                                "dry_run": true,
+                                "retention_days": days,
+                                "would_delete": count
+                            }));
+                        } else if count > 0 {
+                            println!("{} {} briefing(s) would be deleted (older than {} days)",
+                                "Preview:".yellow(), count, days);
+                            println!("\nRun without --dry-run to delete");
+                        } else {
+                            println!("{} No briefings to clean up", "✓".green());
+                        }
+                    }
+                    None => {
+                        if json {
+                            println!("{}", serde_json::json!({
+                                "dry_run": true,
+                                "retention_days": null,
+                                "would_delete": 0,
+                                "message": "Retention set to 'Never delete'"
+                            }));
+                        } else {
+                            println!("{} Retention is set to 'Never delete'", "ℹ".blue());
+                            println!("Change in Settings → Storage to enable auto-cleanup");
+                        }
+                    }
+                }
+            } else {
+                // Actually run cleanup
+                let result = housekeeping::run_cleanup()?;
+
+                if json {
+                    println!("{}", serde_json::json!({
+                        "deleted_count": result.deleted_count,
+                        "remaining_count": result.remaining_count,
+                        "skipped_reason": result.skipped_reason
+                    }));
+                } else if let Some(reason) = result.skipped_reason {
+                    println!("{} Skipped: {}", "ℹ".blue(), reason);
+                } else if result.deleted_count > 0 {
+                    println!("{} Deleted {} briefing(s), {} remaining",
+                        "✓".green(), result.deleted_count, result.remaining_count);
+                } else {
+                    println!("{} No briefings to clean up ({} total)",
+                        "✓".green(), result.remaining_count);
+                }
+            }
+        }
+
+        HousekeepingAction::Status => {
+            let settings = read_settings()?;
+            let conn = db::get_connection()
+                .map_err(|e| format!("Database connection failed: {}", e))?;
+            let total_count = db::count_briefings(&conn)?;
+
+            // Get database file size
+            let db_path = get_config_dir().join("claudius.db");
+            let db_size = std::fs::metadata(&db_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            // Count candidates if retention is set
+            let cleanup_candidates = match settings.retention_days {
+                Some(days) => Some(db::count_cleanup_candidates(&conn, days)?),
+                None => None,
+            };
+
+            if json {
+                println!("{}", serde_json::json!({
+                    "total_briefings": total_count,
+                    "retention_days": settings.retention_days,
+                    "cleanup_candidates": cleanup_candidates,
+                    "database_size_bytes": db_size
+                }));
+            } else {
+                println!("{}", "Housekeeping Status".bold());
+                println!("─────────────────────");
+                println!("Total briefings: {}", total_count.to_string().cyan());
+
+                match settings.retention_days {
+                    Some(days) => {
+                        println!("Retention: {} days", days.to_string().cyan());
+                        if let Some(candidates) = cleanup_candidates {
+                            if candidates > 0 {
+                                println!("Ready for cleanup: {} briefing(s)", candidates.to_string().yellow());
+                            } else {
+                                println!("Ready for cleanup: {}", "none".green());
+                            }
+                        }
+                    }
+                    None => {
+                        println!("Retention: {}", "Never delete".cyan());
+                    }
+                }
+
+                // Format database size
+                let size_str = if db_size > 1_000_000 {
+                    format!("{:.1} MB", db_size as f64 / 1_000_000.0)
+                } else if db_size > 1_000 {
+                    format!("{:.1} KB", db_size as f64 / 1_000.0)
+                } else {
+                    format!("{} bytes", db_size)
+                };
+                println!("Database size: {}", size_str.cyan());
+            }
+        }
+
+        HousekeepingAction::Optimize => {
+            let conn = db::get_connection()
+                .map_err(|e| format!("Database connection failed: {}", e))?;
+
+            // Get size before
+            let db_path = get_config_dir().join("claudius.db");
+            let size_before = std::fs::metadata(&db_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            // Run VACUUM
+            conn.execute("VACUUM", [])
+                .map_err(|e| format!("Failed to optimize database: {}", e))?;
+
+            // Get size after
+            let size_after = std::fs::metadata(&db_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            let saved = size_before.saturating_sub(size_after);
+
+            if json {
+                println!("{}", serde_json::json!({
+                    "status": "optimized",
+                    "size_before": size_before,
+                    "size_after": size_after,
+                    "bytes_saved": saved
+                }));
+            } else if saved > 0 {
+                let saved_str = if saved > 1_000_000 {
+                    format!("{:.1} MB", saved as f64 / 1_000_000.0)
+                } else if saved > 1_000 {
+                    format!("{:.1} KB", saved as f64 / 1_000.0)
+                } else {
+                    format!("{} bytes", saved)
+                };
+                println!("{} Database optimized, {} freed", "✓".green(), saved_str);
+            } else {
+                println!("{} Database already optimized", "✓".green());
             }
         }
     }

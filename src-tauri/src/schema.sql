@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS feedback (
     FOREIGN KEY (briefing_id) REFERENCES briefings(id) ON DELETE CASCADE
 );
 
+-- Chat messages for card conversations (each card has its own chat)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    briefing_id INTEGER NOT NULL,
+    card_index INTEGER NOT NULL DEFAULT 0,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    tokens_used INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (briefing_id) REFERENCES briefings(id) ON DELETE CASCADE
+);
+
 -- Research logs for tracking tool calls and API interactions
 CREATE TABLE IF NOT EXISTS research_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,10 +63,22 @@ CREATE TABLE IF NOT EXISTS topics (
     updated_at TEXT NOT NULL
 );
 
+-- Bookmarks for saving cards
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    briefing_id INTEGER NOT NULL,
+    card_index INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (briefing_id) REFERENCES briefings(id) ON DELETE CASCADE,
+    UNIQUE(briefing_id, card_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_briefings_date ON briefings(date DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_briefing ON feedback(briefing_id);
+-- Note: idx_chat_messages_briefing_card index is created in migration after card_index column is added
 CREATE INDEX IF NOT EXISTS idx_research_logs_briefing ON research_logs(briefing_id);
 CREATE INDEX IF NOT EXISTS idx_research_logs_type ON research_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_research_logs_error ON research_logs(error_code) WHERE error_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_topics_enabled ON topics(enabled);
 CREATE INDEX IF NOT EXISTS idx_topics_sort_order ON topics(sort_order);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_briefing ON bookmarks(briefing_id);

@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { BookmarksPage } from './pages/BookmarksPage';
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { ResearchProvider } from './contexts/ResearchContext';
 
@@ -46,6 +47,7 @@ export function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/history" element={<HistoryPage />} />
+              <Route path="/bookmarks" element={<BookmarksPage />} />
             </Routes>
           </Layout>
         </HashRouter>

@@ -1071,7 +1071,7 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                             topic,
                             "web_search",
                             "built-in web search",
-                            &format!("Web search completed (result in response)"),
+                            "Web search completed (result in response)",
                             api_duration,
                         );
                     }
@@ -1127,8 +1127,8 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             let mut tool_results: Vec<ContentBlock> = Vec::new();
             let empty_input = json!({});
             for tool_use in tool_uses {
-                let tool_name = tool_use.name.as_ref().map(|s| s.as_str()).unwrap_or("");
-                let tool_id = tool_use.id.as_ref().map(|s| s.as_str()).unwrap_or("");
+                let tool_name = tool_use.name.as_deref().unwrap_or("");
+                let tool_id = tool_use.id.as_deref().unwrap_or("");
                 let tool_input = tool_use.input.as_ref().unwrap_or(&empty_input);
                 let input_str = serde_json::to_string(tool_input).unwrap_or_default();
 

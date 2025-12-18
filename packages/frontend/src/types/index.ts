@@ -37,6 +37,7 @@ export interface ResearchSettings {
   enable_notifications: boolean;
   notification_sound: boolean;
   enable_web_search?: boolean;
+  retention_days: number | null;  // null = never delete
 }
 
 export interface UserFeedback {
@@ -58,4 +59,26 @@ export interface BriefingFilters {
   date_from?: string;
   date_to?: string;
   search_query?: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  briefing_id: number;
+  card_index: number;
+  role: 'user' | 'assistant';
+  content: string;
+  tokens_used?: number;
+  created_at: string;
+}
+
+export interface CardWithChat {
+  briefing_id: number;
+  card_index: number;
+}
+
+export interface Bookmark {
+  id: number;
+  briefing_id: number;
+  card_index: number;
+  created_at: string;
 }

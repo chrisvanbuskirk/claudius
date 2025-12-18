@@ -44,6 +44,8 @@ pub struct ResearchSettings {
     pub notification_sound: bool,
     #[serde(default)]
     pub enable_web_search: bool,
+    #[serde(default)]
+    pub retention_days: Option<i32>,  // None = never delete, Some(7/14/30/90)
 }
 
 fn default_notification_sound() -> bool {
@@ -128,6 +130,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             enable_notifications: true,
             notification_sound: true,
             enable_web_search: false,
+            retention_days: None,  // Never delete by default
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -381,6 +384,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         enable_notifications: true,
         notification_sound: true,
         enable_web_search: false,
+        retention_days: None,
     });
 
     // Get API key from file-based storage
@@ -693,6 +697,77 @@ pub fn update_settings(settings: ResearchSettings) -> Result<ResearchSettings, S
 }
 
 // ============================================================================
+// Housekeeping / Cleanup commands
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HousekeepingResult {
+    pub deleted_count: usize,
+    pub remaining_count: usize,
+}
+
+/// Delete a specific briefing by ID
+#[tauri::command]
+pub fn delete_briefing(id: i64) -> Result<bool, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::delete_briefing(&conn, id)
+}
+
+/// Check if a briefing has any bookmarked cards
+#[tauri::command]
+pub fn briefing_has_bookmarks(briefing_id: i64) -> Result<bool, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::briefing_has_bookmarks(&conn, briefing_id)
+}
+
+/// Run housekeeping cleanup based on retention_days setting
+#[tauri::command]
+pub fn run_housekeeping() -> Result<HousekeepingResult, String> {
+    let settings = read_settings()?;
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+
+    let deleted_count = if let Some(days) = settings.retention_days {
+        db::cleanup_old_briefings(&conn, days)?
+    } else {
+        0  // retention_days = None means never delete
+    };
+
+    let remaining_count = db::count_briefings(&conn)?;
+
+    Ok(HousekeepingResult {
+        deleted_count,
+        remaining_count,
+    })
+}
+
+/// Get count of briefings that would be deleted for a given retention period
+#[tauri::command]
+pub fn get_cleanup_preview(days: i32) -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_cleanup_candidates(&conn, days)
+}
+
+/// Get total count of briefings
+#[tauri::command]
+pub fn get_briefing_count() -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_briefings(&conn)
+}
+
+/// Get total count of cards across all briefings
+#[tauri::command]
+pub fn get_card_count() -> Result<usize, String> {
+    let conn = db::get_connection()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    db::count_cards(&conn)
+}
+
+// ============================================================================
 // Notification commands
 // ============================================================================
 
@@ -936,6 +1011,96 @@ pub fn submit_feedback(feedback: serde_json::Value) -> Result<(), String> {
 #[tauri::command]
 pub async fn run_research_now(app: tauri::AppHandle) -> Result<String, String> {
     trigger_research(app).await
+}
+
+// ============================================================================
+// Chat commands
+// ============================================================================
+
+use claudius::chat;
+use claudius::db::ChatMessage;
+
+/// Send a chat message about a specific briefing card and get Claude's response.
+#[tauri::command]
+pub async fn send_chat_message(
+    app: tauri::AppHandle,
+    briefing_id: i64,
+    card_index: i32,
+    message: String,
+) -> Result<ChatMessage, String> {
+    // Get API key
+    let api_key = get_api_key_for_research()
+        .ok_or("No API key configured. Please set your Anthropic API key in Settings.")?;
+
+    // Get model and settings
+    let settings = read_settings()?;
+
+    // Send message and get response (with tool calling enabled based on settings)
+    let (response_message, _tokens) = chat::send_chat_message(
+        &api_key,
+        &settings.model,
+        briefing_id,
+        card_index,
+        &message,
+        settings.enable_web_search,
+        Some(&app),
+    ).await?;
+
+    Ok(response_message)
+}
+
+/// Get chat history for a specific card in a briefing.
+#[tauri::command]
+pub fn get_chat_history(briefing_id: i64, card_index: i32) -> Result<Vec<ChatMessage>, String> {
+    chat::get_chat_history(briefing_id, card_index)
+}
+
+/// Clear chat history for a specific card in a briefing.
+#[tauri::command]
+pub fn clear_chat_history(briefing_id: i64, card_index: i32) -> Result<usize, String> {
+    chat::clear_chat_history(briefing_id, card_index)
+}
+
+/// Get all cards (briefing_id, card_index) that have chat messages.
+#[tauri::command]
+pub fn get_cards_with_chats() -> Result<Vec<claudius::db::CardWithChat>, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::get_cards_with_chats(&conn)
+}
+
+// ============================================================================
+// Bookmark commands
+// ============================================================================
+
+use claudius::db::Bookmark;
+
+/// Toggle bookmark status for a card. Returns true if bookmarked, false if unbookmarked.
+#[tauri::command]
+pub fn toggle_bookmark(briefing_id: i64, card_index: i32) -> Result<bool, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::toggle_bookmark(&conn, briefing_id, card_index)
+}
+
+/// Check if a card is bookmarked.
+#[tauri::command]
+pub fn is_card_bookmarked(briefing_id: i64, card_index: i32) -> Result<bool, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::is_bookmarked(&conn, briefing_id, card_index)
+}
+
+/// Get all bookmarks.
+#[tauri::command]
+pub fn get_bookmarks() -> Result<Vec<Bookmark>, String> {
+    let db_path = claudius::config::get_config_dir().join("claudius.db");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+    claudius::db::get_all_bookmarks(&conn)
 }
 
 // ============================================================================

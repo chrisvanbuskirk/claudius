@@ -40,11 +40,13 @@ Claudius is a self-hosted, privacy-first research assistant available as both a 
 - **Agentic Research**: Claude uses tools to actively research your topics (GitHub, web fetching, and more)
 - **MCP Server Support**: Extend research capabilities with any MCP-compatible server (Brave Search, etc.)
 - **Daily Briefings**: Wake up to curated research cards with summaries and sources
-- **Feedback Learning**: Thumbs up/down on cards helps refine future research
+- **Per-Card Chat**: Chat with Claude about any briefing card for deeper exploration
+- **Bookmarks**: Save important cards for later reference (bookmarked cards are never auto-deleted)
+- **Storage Management**: Auto-delete old briefings after a configurable retention period, or manually delete individual cards
 - **Privacy First**: All data stays on your machine - no cloud storage required
 - **Auto-Update**: Automatic update detection with in-app notifications and one-click install
 - **Desktop App**: Native app built with Tauri 2.0 for macOS, Windows, and Linux
-- **CLI**: Full command-line interface for power users
+- **CLI**: Full command-line interface for power users and automation
 - **Claude Desktop Integration**: MCP server lets Claude access your briefings
 
 ## How It Works: Agentic Architecture
@@ -156,7 +158,7 @@ All Claudius data is stored locally in `~/.claudius/`:
 | `.env` | Your Anthropic API key (stored as `ANTHROPIC_API_KEY=sk-ant-...`) |
 | `mcp-servers.json` | MCP server configurations and API keys |
 | `preferences.json` | App settings (schedule, model preferences, etc.) |
-| `claudius.db` | SQLite database with briefings, topics, feedback, and research logs |
+| `claudius.db` | SQLite database with briefings, topics, bookmarks, chat messages, and research logs |
 
 **Note:** The `.env` file contains your API key in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
 
@@ -387,6 +389,14 @@ claudius config api-key set <key> # Set API key
 claudius config api-key clear     # Remove API key
 ```
 
+### Housekeeping
+```bash
+claudius housekeeping status      # Show storage stats (briefings, cards, db size)
+claudius housekeeping run         # Run cleanup based on retention settings
+claudius housekeeping run --dry-run  # Preview what would be deleted
+claudius housekeeping optimize    # Optimize database (VACUUM)
+```
+
 ### JSON Output
 Add `--json` to any command for machine-readable output:
 ```bash
@@ -412,6 +422,9 @@ crontab -e
 
 # Run every 4 hours
 0 */4 * * * /usr/local/bin/claudius research now
+
+# Run housekeeping weekly (Sunday at midnight)
+0 0 * * 0 /usr/local/bin/claudius housekeeping run
 ```
 
 **macOS Shortcuts:**

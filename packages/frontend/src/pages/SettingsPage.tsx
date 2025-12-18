@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles } from 'lucide-react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
@@ -1669,6 +1669,13 @@ function ResearchSettingsTab() {
           )}
         </div>
 
+        {/* Storage Section */}
+        <StorageSection
+          retentionDays={settings.retention_days}
+          onRetentionChange={(days) => autoSave('retention_days', days)}
+          savedIndicator={savedIndicator}
+        />
+
         <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
           <MagneticButton
             onClick={handleRunNow}
@@ -1687,6 +1694,174 @@ function ResearchSettingsTab() {
 
         {/* CLI Installation Section */}
         <CliInstallSection />
+      </div>
+    </div>
+  );
+}
+
+// Retention options for the dropdown
+const RETENTION_OPTIONS = [
+  { value: null, label: 'Never delete' },
+  { value: 7, label: '1 week' },
+  { value: 14, label: '2 weeks' },
+  { value: 30, label: '1 month' },
+  { value: 90, label: '3 months' },
+];
+
+interface StorageSectionProps {
+  retentionDays: number | null;
+  onRetentionChange: (days: number | null) => void;
+  savedIndicator: string | null;
+}
+
+function StorageSection({ retentionDays, onRetentionChange, savedIndicator }: StorageSectionProps) {
+  const [briefingCount, setBriefingCount] = useState<number | null>(null);
+  const [cardCount, setCardCount] = useState<number | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<number | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [runningCleanup, setRunningCleanup] = useState(false);
+
+  // Fetch briefing count, card count, and cleanup preview
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const [briefings, cards] = await Promise.all([
+          invoke<number>('get_briefing_count'),
+          invoke<number>('get_card_count'),
+        ]);
+        setBriefingCount(briefings);
+        setCardCount(cards);
+
+        if (retentionDays !== null) {
+          setLoadingPreview(true);
+          const preview = await invoke<number>('get_cleanup_preview', { days: retentionDays });
+          setCleanupPreview(preview);
+        } else {
+          setCleanupPreview(null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch storage info:', err);
+      } finally {
+        setLoadingPreview(false);
+      }
+    };
+
+    fetchCounts();
+  }, [retentionDays]);
+
+  const handleRetentionChange = (value: string) => {
+    const days = value === 'null' ? null : parseInt(value);
+    onRetentionChange(days);
+  };
+
+  const handleRunCleanup = async () => {
+    setRunningCleanup(true);
+    try {
+      const result = await invoke<{ deleted_count: number; remaining_count: number }>('run_housekeeping');
+      setBriefingCount(result.remaining_count);
+      setCleanupPreview(0);
+      if (result.deleted_count > 0) {
+        alert(`Deleted ${result.deleted_count} old briefing(s).`);
+      } else {
+        alert('No briefings to clean up.');
+      }
+    } catch (err) {
+      alert('Failed to run cleanup: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setRunningCleanup(false);
+    }
+  };
+
+  return (
+    <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="flex items-center gap-2 mb-3">
+        <HardDrive className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <h3 className="font-medium text-gray-900 dark:text-white">Storage</h3>
+      </div>
+
+      <div className="space-y-4">
+        {/* Counts */}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-600 dark:text-gray-400">Total</span>
+          <span className="font-medium text-gray-900 dark:text-white">
+            {briefingCount !== null && cardCount !== null
+              ? `${cardCount} cards in ${briefingCount} briefings`
+              : '...'}
+          </span>
+        </div>
+
+        {/* Retention Dropdown */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Auto-delete old briefings
+            </label>
+            {savedIndicator === 'retention_days' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
+          <select
+            value={retentionDays === null ? 'null' : retentionDays.toString()}
+            onChange={(e) => handleRetentionChange(e.target.value)}
+            className="input w-full"
+          >
+            {RETENTION_OPTIONS.map((option) => (
+              <option key={option.value ?? 'null'} value={option.value === null ? 'null' : option.value.toString()}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Bookmarked briefings are never auto-deleted.
+          </p>
+        </div>
+
+        {/* Cleanup Preview */}
+        {retentionDays !== null && (
+          <div className="pt-2 space-y-3">
+            {loadingPreview ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Calculating...
+              </div>
+            ) : cleanupPreview !== null && cleanupPreview > 0 ? (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  <span className="font-medium">{cleanupPreview}</span> briefing(s) older than {retentionDays} days will be deleted on next cleanup.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No briefings to clean up.
+              </p>
+            )}
+
+            <button
+              onClick={handleRunCleanup}
+              disabled={runningCleanup || cleanupPreview === 0}
+              className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {runningCleanup ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Running cleanup...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3 h-3" />
+                  Run cleanup now
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
