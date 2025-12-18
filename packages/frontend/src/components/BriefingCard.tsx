@@ -176,7 +176,7 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
       {onDelete && (
         <button
           onClick={handleDelete}
-          className="absolute top-3 right-3 p-1.5 rounded-lg bg-gray-100/50 dark:bg-gray-700/50 hover:bg-red-100 dark:hover:bg-red-900/40 text-gray-300 dark:text-gray-600 hover:text-red-600 dark:hover:text-red-400 transition-colors z-10"
+          className="absolute top-3 right-3 p-1.5 rounded-lg bg-gray-500/20 hover:bg-red-500/30 text-gray-400 hover:text-red-400 transition-colors z-10"
           aria-label="Delete card"
         >
           <X className="w-4 h-4" />
@@ -337,7 +337,7 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
         {(sources.length > 3 || briefing.detailed_content) && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-primary-500/20 text-primary-400 hover:bg-primary-500/30 hover:text-primary-300 transition-colors"
           >
             {expanded ? (
               <>
@@ -347,7 +347,7 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
             ) : (
               <>
                 <ChevronDown className="w-4 h-4" />
-                {briefing.detailed_content ? 'Show details' : 'Show more sources'}
+                {briefing.detailed_content ? 'Show research' : 'Show more sources'}
               </>
             )}
           </button>
