@@ -1238,14 +1238,12 @@ async fn handle_housekeeping(action: HousekeepingAction, json: bool) -> Result<(
                                 "retention_days": days,
                                 "would_delete": count
                             }));
+                        } else if count > 0 {
+                            println!("{} {} briefing(s) would be deleted (older than {} days)",
+                                "Preview:".yellow(), count, days);
+                            println!("\nRun without --dry-run to delete");
                         } else {
-                            if count > 0 {
-                                println!("{} {} briefing(s) would be deleted (older than {} days)",
-                                    "Preview:".yellow(), count, days);
-                                println!("\nRun without --dry-run to delete");
-                            } else {
-                                println!("{} No briefings to clean up", "✓".green());
-                            }
+                            println!("{} No briefings to clean up", "✓".green());
                         }
                     }
                     None => {
@@ -1272,16 +1270,14 @@ async fn handle_housekeeping(action: HousekeepingAction, json: bool) -> Result<(
                         "remaining_count": result.remaining_count,
                         "skipped_reason": result.skipped_reason
                     }));
+                } else if let Some(reason) = result.skipped_reason {
+                    println!("{} Skipped: {}", "ℹ".blue(), reason);
+                } else if result.deleted_count > 0 {
+                    println!("{} Deleted {} briefing(s), {} remaining",
+                        "✓".green(), result.deleted_count, result.remaining_count);
                 } else {
-                    if let Some(reason) = result.skipped_reason {
-                        println!("{} Skipped: {}", "ℹ".blue(), reason);
-                    } else if result.deleted_count > 0 {
-                        println!("{} Deleted {} briefing(s), {} remaining",
-                            "✓".green(), result.deleted_count, result.remaining_count);
-                    } else {
-                        println!("{} No briefings to clean up ({} total)",
-                            "✓".green(), result.remaining_count);
-                    }
+                    println!("{} No briefings to clean up ({} total)",
+                        "✓".green(), result.remaining_count);
                 }
             }
         }
@@ -1372,19 +1368,17 @@ async fn handle_housekeeping(action: HousekeepingAction, json: bool) -> Result<(
                     "size_after": size_after,
                     "bytes_saved": saved
                 }));
-            } else {
-                if saved > 0 {
-                    let saved_str = if saved > 1_000_000 {
-                        format!("{:.1} MB", saved as f64 / 1_000_000.0)
-                    } else if saved > 1_000 {
-                        format!("{:.1} KB", saved as f64 / 1_000.0)
-                    } else {
-                        format!("{} bytes", saved)
-                    };
-                    println!("{} Database optimized, {} freed", "✓".green(), saved_str);
+            } else if saved > 0 {
+                let saved_str = if saved > 1_000_000 {
+                    format!("{:.1} MB", saved as f64 / 1_000_000.0)
+                } else if saved > 1_000 {
+                    format!("{:.1} KB", saved as f64 / 1_000.0)
                 } else {
-                    println!("{} Database already optimized", "✓".green());
-                }
+                    format!("{} bytes", saved)
+                };
+                println!("{} Database optimized, {} freed", "✓".green(), saved_str);
+            } else {
+                println!("{} Database already optimized", "✓".green());
             }
         }
     }

@@ -473,12 +473,10 @@ pub fn count_cards(conn: &Connection) -> std::result::Result<usize, String> {
         Ok(cards_json)
     }).map_err(|e| format!("Failed to query briefings: {}", e))?;
 
-    for row in rows {
-        if let Ok(cards_json) = row {
-            // Parse JSON array and count elements
-            if let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards_json) {
-                total_cards += cards.len();
-            }
+    for cards_json in rows.flatten() {
+        // Parse JSON array and count elements
+        if let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards_json) {
+            total_cards += cards.len();
         }
     }
 
