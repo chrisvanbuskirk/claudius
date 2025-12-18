@@ -127,6 +127,7 @@ export function BookmarksPage() {
     return result;
   }, [bookmarks, briefingsData]);
 
+  /* Thumbs handlers commented out - not currently used
   const handleThumbsUp = (briefingId: string) => {
     invoke('submit_feedback', {
       feedback: {
@@ -146,6 +147,7 @@ export function BookmarksPage() {
       }
     }).catch(console.error);
   };
+  */
 
   const handleBookmark = async (briefingId: string) => {
     const parts = briefingId.split('-');
@@ -232,8 +234,8 @@ export function BookmarksPage() {
               <BriefingCard
                 key={briefing.id}
                 briefing={briefing}
-                onThumbsUp={() => handleThumbsUp(briefing.id)}
-                onThumbsDown={() => handleThumbsDown(briefing.id)}
+                // onThumbsUp={() => handleThumbsUp(briefing.id)}
+                // onThumbsDown={() => handleThumbsDown(briefing.id)}
                 onOpenChat={() => handleOpenChat(briefing)}
                 onBookmark={() => handleBookmark(briefing.id)}
                 onDelete={() => handleDelete(briefing.id)}

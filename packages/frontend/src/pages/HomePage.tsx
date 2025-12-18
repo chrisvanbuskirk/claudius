@@ -37,7 +37,7 @@ interface BriefingCardData {
 }
 
 export function HomePage() {
-  const { briefings: rawBriefings, loading, error, getTodaysBriefings, submitFeedback } = useBriefings();
+  const { briefings: rawBriefings, loading, error, getTodaysBriefings, /* submitFeedback */ } = useBriefings();
   const { bookmarks, toggleBookmark } = useBookmarks();
   const { setIsResearchRunning } = useResearch();
   const progress = useResearchProgress();
@@ -158,6 +158,7 @@ export function HomePage() {
     }
   };
 
+  /* Thumbs handlers commented out - not currently used
   const handleThumbsUp = (briefingId: string) => {
     submitFeedback({
       briefing_id: briefingId,
@@ -173,6 +174,7 @@ export function HomePage() {
       timestamp: new Date().toISOString(),
     });
   };
+  */
 
   const handleOpenChat = (briefing: Briefing) => {
     // Extract card index from the briefing id (format: "briefingId-cardIndex")
@@ -346,8 +348,8 @@ export function HomePage() {
           >
             <BriefingCard
               briefing={briefing}
-              onThumbsUp={() => handleThumbsUp(briefing.id)}
-              onThumbsDown={() => handleThumbsDown(briefing.id)}
+              // onThumbsUp={() => handleThumbsUp(briefing.id)}
+              // onThumbsDown={() => handleThumbsDown(briefing.id)}
               onOpenChat={() => handleOpenChat(briefing)}
               onBookmark={() => handleBookmark(briefing.id)}
               onDelete={() => handleDelete(briefing.id)}

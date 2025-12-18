@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ThumbsUp, ThumbsDown, ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle } from 'lucide-react';
+import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type { Briefing } from '../types';
 
@@ -109,8 +109,9 @@ function getSourceDisplay(source: string): { href: string | null; text: string }
 
 interface BriefingCardProps {
   briefing: Briefing;
-  onThumbsUp: () => void;
-  onThumbsDown: () => void;
+  // Thumbs up/down commented out - not currently used for anything
+  // onThumbsUp: () => void;
+  // onThumbsDown: () => void;
   onOpenChat: () => void;
   onBookmark: () => void;
   onDelete?: () => void;
@@ -118,9 +119,9 @@ interface BriefingCardProps {
   isBookmarked?: boolean;
 }
 
-export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, onBookmark, onDelete, hasChat, isBookmarked }: BriefingCardProps) {
+export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenChat, onBookmark, onDelete, hasChat, isBookmarked }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
+  // const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleDelete = () => {
@@ -143,6 +144,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, o
     low: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
   };
 
+  /* Thumbs handlers commented out - not currently used
   const handleThumbsUp = () => {
     if (feedbackGiven !== 'up') {
       setFeedbackGiven('up');
@@ -156,6 +158,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, o
       onThumbsDown();
     }
   };
+  */
 
   return (
     <>
@@ -283,6 +286,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, o
 
       <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
+          {/* Thumbs up/down buttons commented out - not currently used for anything
           <button
             onClick={handleThumbsUp}
             className={`p-2 rounded-lg transition-colors ${
@@ -305,6 +309,7 @@ export function BriefingCard({ briefing, onThumbsUp, onThumbsDown, onOpenChat, o
           >
             <ThumbsDown className="w-4 h-4" />
           </button>
+          */}
           <button
             onClick={onBookmark}
             className={`p-2 rounded-lg transition-colors ${
