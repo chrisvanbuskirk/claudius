@@ -1101,18 +1101,26 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             }
 
             // Build assistant message with tool uses
+            // Filter out empty text blocks - Claude API rejects "text content blocks must be non-empty"
             let assistant_blocks: Vec<ContentBlock> = response.content.iter()
-                .map(|c| {
+                .filter_map(|c| {
                     if c.content_type == "text" {
-                        ContentBlock::Text { text: c.text.clone().unwrap_or_default() }
+                        let text = c.text.clone().unwrap_or_default();
+                        // Only include non-empty text blocks
+                        if !text.is_empty() {
+                            Some(ContentBlock::Text { text })
+                        } else {
+                            None
+                        }
                     } else if c.content_type == "tool_use" {
-                        ContentBlock::ToolUse {
+                        Some(ContentBlock::ToolUse {
                             id: c.id.clone().unwrap_or_default(),
                             name: c.name.clone().unwrap_or_default(),
                             input: c.input.clone().unwrap_or(json!({})),
-                        }
+                        })
                     } else {
-                        ContentBlock::Text { text: "".to_string() }
+                        // Skip unknown content types instead of creating empty text blocks
+                        None
                     }
                 })
                 .collect();
