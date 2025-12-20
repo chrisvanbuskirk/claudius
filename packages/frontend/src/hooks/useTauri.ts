@@ -36,7 +36,13 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   if (!invoke) {
     throw new Error('Running in browser mode - Tauri not available. Run with `npm run dev:tauri` for full functionality.');
   }
-  return await invoke(cmd, args) as T;
+  try {
+    const result = await invoke(cmd, args) as T;
+    return result;
+  } catch (err) {
+    console.error(`[safeInvoke] Command '${cmd}' failed:`, err);
+    throw err;
+  }
 }
 
 export function useBriefings() {
@@ -239,12 +245,16 @@ export function useMCPServers() {
   const addServer = useCallback(async (name: string, config: Record<string, unknown>) => {
     setLoading(true);
     setError(null);
+    console.log('[MCP] addServer called with:', { name, config });
     try {
-      const result = await safeInvoke<MCPServer>('add_mcp_server', { name, config_data: config });
+      const result = await safeInvoke<MCPServer>('add_mcp_server', { name, configData: config });
+      console.log('[MCP] addServer success:', result);
       setServers(prev => [...prev, result]);
       return result;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to add MCP server';
+      console.error('[MCP] addServer error:', err, typeof err);
+      // Tauri returns error strings directly, not Error objects
+      const errorMessage = typeof err === 'string' ? err : (err instanceof Error ? err.message : 'Failed to add MCP server');
       setError(errorMessage);
       return null;
     } finally {
@@ -273,7 +283,7 @@ export function useMCPServers() {
       const result = await safeInvoke<MCPServer>('update_mcp_server', {
         id,
         name: name || null,
-        config_data: config || null
+        configData: config || null
       });
       setServers(prev => prev.map(s => s.id === id ? result : s));
       return result;
@@ -411,7 +421,7 @@ export function useApiKey() {
     setLoading(true);
     setError(null);
     try {
-      await safeInvoke<void>('set_api_key', { api_key: apiKey });
+      await safeInvoke<void>('set_api_key', { apiKey });
       await checkApiKey();
       return true;
     } catch (err) {

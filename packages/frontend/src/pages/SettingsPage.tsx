@@ -469,12 +469,14 @@ function QuickSetupModal({
   onClose,
   onAdd,
   saving,
+  error,
 }: {
   server: QuickSetupServer | null;
   isOpen: boolean;
   onClose: () => void;
   onAdd: (apiKey: string) => Promise<void>;
   saving: boolean;
+  error: string | null;
 }) {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -570,6 +572,12 @@ function QuickSetupModal({
               </div>
             </div>
 
+            {error && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              </div>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -599,7 +607,7 @@ function QuickSetupModal({
 }
 
 function MCPServersTab() {
-  const { servers, loading, addServer, updateServer, toggleServer, removeServer } = useMCPServers();
+  const { servers, loading, error: mcpError, addServer, updateServer, toggleServer, removeServer } = useMCPServers();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerCommand, setNewServerCommand] = useState('');
@@ -643,8 +651,11 @@ function MCPServersTab() {
         env: { [quickSetupServer.apiKeyEnvVar]: apiKey },
       };
 
-      await addServer(quickSetupServer.name, config);
-      setQuickSetupServer(null);
+      const result = await addServer(quickSetupServer.name, config);
+      // Only close modal if server was added successfully
+      if (result) {
+        setQuickSetupServer(null);
+      }
     } finally {
       setQuickSetupSaving(false);
     }
@@ -845,6 +856,7 @@ function MCPServersTab() {
         onClose={() => setQuickSetupServer(null)}
         onAdd={handleQuickSetupAdd}
         saving={quickSetupSaving}
+        error={mcpError}
       />
 
       {showAddForm && (

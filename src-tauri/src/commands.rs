@@ -101,11 +101,14 @@ fn log_agent_error(context: &str, error: &str) {
 
 fn read_mcp_servers() -> Result<MCPServersConfig, String> {
     let path = get_mcp_servers_path();
+    tracing::debug!("Reading MCP servers from: {:?}", path);
     if !path.exists() {
+        tracing::debug!("MCP servers file doesn't exist, returning empty config");
         return Ok(MCPServersConfig { servers: vec![] });
     }
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read MCP servers: {}", e))?;
+    tracing::debug!("MCP servers file content: {}", content);
     serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse MCP servers: {}", e))
 }
@@ -627,7 +630,12 @@ pub fn toggle_mcp_server(id: String, enabled: bool) -> Result<MCPServer, String>
 
 #[tauri::command]
 pub fn add_mcp_server(name: String, config_data: serde_json::Value) -> Result<MCPServer, String> {
-    let mut config = read_mcp_servers()?;
+    tracing::info!("add_mcp_server called with name: {}, config: {:?}", name, config_data);
+
+    let mut config = read_mcp_servers().map_err(|e| {
+        tracing::error!("Failed to read MCP servers: {}", e);
+        e
+    })?;
 
     let server = MCPServer {
         id: Uuid::new_v4().to_string(),
@@ -638,8 +646,12 @@ pub fn add_mcp_server(name: String, config_data: serde_json::Value) -> Result<MC
     };
 
     config.servers.push(server.clone());
-    write_mcp_servers(&config)?;
+    write_mcp_servers(&config).map_err(|e| {
+        tracing::error!("Failed to write MCP servers: {}", e);
+        e
+    })?;
 
+    tracing::info!("MCP server added successfully: {}", server.id);
     Ok(server)
 }
 
