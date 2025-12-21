@@ -46,10 +46,24 @@ pub struct ResearchSettings {
     pub enable_web_search: bool,
     #[serde(default)]
     pub retention_days: Option<i32>,  // None = never delete, Some(7/14/30/90)
+    #[serde(default)]
+    pub condense_briefings: bool,  // Combine all topics into one comprehensive card
+    #[serde(default = "default_dedup_days")]
+    pub dedup_days: i32,  // Days to look back for duplicates
+    #[serde(default = "default_dedup_threshold")]
+    pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
 }
 
 fn default_notification_sound() -> bool {
     true
+}
+
+fn default_dedup_days() -> i32 {
+    14
+}
+
+fn default_dedup_threshold() -> f64 {
+    0.75
 }
 
 fn get_config_dir() -> PathBuf {
@@ -134,6 +148,9 @@ fn read_settings() -> Result<ResearchSettings, String> {
             notification_sound: true,
             enable_web_search: false,
             retention_days: None,  // Never delete by default
+            condense_briefings: false,
+            dedup_days: default_dedup_days(),
+            dedup_threshold: default_dedup_threshold(),
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -388,6 +405,9 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         notification_sound: true,
         enable_web_search: false,
         retention_days: None,
+        condense_briefings: false,
+        dedup_days: default_dedup_days(),
+        dedup_threshold: default_dedup_threshold(),
     });
 
     // Get API key from file-based storage
@@ -444,11 +464,28 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     // Update phase
     research_state::set_phase("researching");
 
+    // Load past card fingerprints for deduplication
+    let (past_cards_context, past_fingerprints) = if settings.dedup_days > 0 {
+        match db::get_recent_card_fingerprints(&conn, settings.dedup_days) {
+            Ok(fingerprints) => {
+                let context = crate::dedup::format_past_cards_for_prompt(&fingerprints);
+                tracing::info!("Loaded {} past card fingerprints for deduplication", fingerprints.len());
+                (Some(context), fingerprints)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load past cards for dedup, continuing without: {}", e);
+                (None, Vec::new())
+            }
+        }
+    } else {
+        (None, Vec::new())
+    };
+
     // Create research agent and set cancellation token
     let mut agent = ResearchAgent::new(api_key, Some(settings.model.clone()), settings.enable_web_search);
     agent.set_cancellation_token(cancellation_token);
 
-    let result = match agent.run_research(topics, Some(app.clone())).await {
+    let mut result = match agent.run_research(topics, Some(app.clone()), settings.condense_briefings, past_cards_context).await {
         Ok(r) => r,
         Err(e) => {
             // Check if this was a cancellation
@@ -460,6 +497,20 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
             return Err(e);
         }
     };
+
+    // Apply post-synthesis deduplication filter (safety net)
+    if !past_fingerprints.is_empty() && settings.dedup_threshold > 0.0 {
+        let original_count = result.cards.len();
+        result.cards = crate::dedup::filter_duplicates(
+            result.cards,
+            &past_fingerprints,
+            settings.dedup_threshold,
+        );
+        let filtered_count = original_count - result.cards.len();
+        if filtered_count > 0 {
+            tracing::info!("Deduplication filtered {} duplicate cards", filtered_count);
+        }
+    }
 
     // Update phase to saving
     research_state::set_phase("saving");

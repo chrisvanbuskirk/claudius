@@ -494,6 +494,60 @@ pub fn briefing_has_bookmarks(conn: &Connection, briefing_id: i64) -> std::resul
     Ok(count > 0)
 }
 
+/// Get recent card fingerprints for deduplication.
+/// Returns (title, topic, summary) for all cards from the last N days.
+pub fn get_recent_card_fingerprints(
+    conn: &Connection,
+    days: i32,
+) -> std::result::Result<Vec<crate::dedup::CardFingerprint>, String> {
+    let query = format!(
+        "SELECT cards FROM briefings WHERE date > datetime('now', '-{} days') ORDER BY date DESC",
+        days
+    );
+
+    let mut stmt = conn.prepare(&query)
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let rows = stmt.query_map([], |row| {
+        let cards_json: String = row.get(0)?;
+        Ok(cards_json)
+    }).map_err(|e| format!("Failed to query briefings: {}", e))?;
+
+    let mut fingerprints = Vec::new();
+
+    for row in rows {
+        let cards_json = row.map_err(|e| format!("Failed to read row: {}", e))?;
+
+        // Parse JSON array of cards
+        if let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards_json) {
+            for card in cards {
+                let title = card.get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let topic = card.get("topic")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let summary = card.get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if !title.is_empty() {
+                    fingerprints.push(crate::dedup::CardFingerprint {
+                        title,
+                        topic,
+                        summary,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(fingerprints)
+}
+
 // ============================================================================
 // Chat messages migration (add card_index column)
 // ============================================================================

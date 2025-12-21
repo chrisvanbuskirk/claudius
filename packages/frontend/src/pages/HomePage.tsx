@@ -10,7 +10,7 @@ import { MagneticButton } from '../components/MagneticButton';
 import { ActionableErrorsAlert } from '../components/ActionableErrorsAlert';
 import { ResearchProgressCard } from '../components/ResearchProgressCard';
 import { useBriefings, useBookmarks } from '../hooks/useTauri';
-import { useResearch } from '../contexts/ResearchContext';
+// Note: useResearch context manages isResearchRunning state internally
 import { useResearchProgress } from '../hooks/useResearchProgress';
 import type { Briefing, CardWithChat } from '../types';
 
@@ -39,7 +39,6 @@ interface BriefingCardData {
 export function HomePage() {
   const { briefings: rawBriefings, loading, error, getTodaysBriefings, /* submitFeedback */ } = useBriefings();
   const { bookmarks, toggleBookmark } = useBookmarks();
-  const { setIsResearchRunning } = useResearch();
   const progress = useResearchProgress();
 
   // Parse the cards JSON and flatten into individual briefing cards
@@ -83,8 +82,10 @@ export function HomePage() {
     return result;
   }, [rawBriefings]);
   const [refreshing, setRefreshing] = useState(false);
-  const [runningResearch, setRunningResearch] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
+
+  // Derive runningResearch from context progress - persists across navigation
+  const runningResearch = progress.isRunning;
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatBriefing, setActiveChatBriefing] = useState<Briefing | null>(null);
   const [activeChatCardIndex, setActiveChatCardIndex] = useState<number>(0);
@@ -93,6 +94,13 @@ export function HomePage() {
   useEffect(() => {
     getTodaysBriefings();
   }, [getTodaysBriefings]);
+
+  // Refresh briefings when research completes (handles navigation during research)
+  useEffect(() => {
+    if (progress.currentPhase === 'complete' && !progress.isRunning) {
+      getTodaysBriefings();
+    }
+  }, [progress.currentPhase, progress.isRunning, getTodaysBriefings]);
 
   // Fetch which cards have chat history
   useEffect(() => {
@@ -111,10 +119,7 @@ export function HomePage() {
     fetchCardsWithChats();
   }, [rawBriefings, chatOpen]); // Refetch when briefings change or chat closes
 
-  // Update purple border aura based on progress state
-  useEffect(() => {
-    setIsResearchRunning(progress.isRunning);
-  }, [progress.isRunning, setIsResearchRunning]);
+  // Note: isResearchRunning is synced with progress.isRunning in ResearchContext
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -130,10 +135,9 @@ export function HomePage() {
   };
 
   const handleRunResearch = async () => {
-    // Guard against concurrent research runs
+    // Guard against concurrent research runs (runningResearch is derived from context)
     if (runningResearch) return;
 
-    setRunningResearch(true);
     setResearchError(null); // Clear any previous errors
 
     try {
@@ -154,7 +158,7 @@ export function HomePage() {
       // ALWAYS refresh briefings, even if research failed/timed out
       // This shows any cards that were successfully generated before failure
       await getTodaysBriefings();
-      setRunningResearch(false);
+      // Note: runningResearch state is managed by context via research events
     }
   };
 

@@ -724,6 +724,27 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 println!();
             }
 
+            // Load past card fingerprints for deduplication
+            let (past_cards_context, past_fingerprints) = if settings.dedup_days > 0 {
+                match db::get_recent_card_fingerprints(&conn, settings.dedup_days) {
+                    Ok(fingerprints) => {
+                        let context = claudius::dedup::format_past_cards_for_prompt(&fingerprints);
+                        if verbose && !json && !fingerprints.is_empty() {
+                            println!("{} Loaded {} past cards for dedup", "→".cyan(), fingerprints.len());
+                        }
+                        (Some(context), fingerprints)
+                    }
+                    Err(e) => {
+                        if verbose && !json {
+                            eprintln!("{} Dedup unavailable: {}", "Warning:".yellow(), e);
+                        }
+                        (None, Vec::new())
+                    }
+                }
+            } else {
+                (None, Vec::new())
+            };
+
             // Set running state BEFORE spawning to prevent race conditions
             let _cancellation_token = research_state::set_running("starting")
                 .map_err(|e| format!("Cannot start research: {}", e))?;
@@ -743,10 +764,12 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             );
 
             let start = std::time::Instant::now();
+            let condense = settings.condense_briefings;
+            let dedup_threshold = settings.dedup_threshold;
 
             // Spawn research on a background task
             let research_handle = tokio::spawn(async move {
-                agent.run_research(topics, None).await
+                agent.run_research(topics, None, condense, past_cards_context).await
             });
 
             // Poll for progress updates (only in non-JSON mode)
@@ -784,7 +807,21 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
             // Note: cleanup is handled by defer! guard above (panic-safe)
 
             // Now handle the result
-            let result = research_result?;
+            let mut result = research_result?;
+
+            // Apply post-synthesis deduplication filter (safety net)
+            if !past_fingerprints.is_empty() && dedup_threshold > 0.0 {
+                let original_count = result.cards.len();
+                result.cards = claudius::dedup::filter_duplicates(
+                    result.cards,
+                    &past_fingerprints,
+                    dedup_threshold,
+                );
+                let filtered_count = original_count - result.cards.len();
+                if filtered_count > 0 && verbose && !json {
+                    println!("{} Filtered {} duplicate cards", "→".cyan(), filtered_count);
+                }
+            }
 
             // Save to database
             let cards_json = serde_json::to_string(&result.cards)

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
+mod dedup;
 mod commands;
 mod tray;
 mod notifications;

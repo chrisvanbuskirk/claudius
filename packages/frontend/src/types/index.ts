@@ -38,6 +38,9 @@ export interface ResearchSettings {
   notification_sound: boolean;
   enable_web_search?: boolean;
   retention_days: number | null;  // null = never delete
+  condense_briefings?: boolean;  // Combine all topics into one comprehensive card
+  dedup_days?: number;  // Days to look back for duplicates (default: 14)
+  dedup_threshold?: number;  // Similarity threshold 0-1 (default: 0.75)
 }
 
 export interface UserFeedback {

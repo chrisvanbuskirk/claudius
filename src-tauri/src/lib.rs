@@ -6,6 +6,7 @@
 // Core modules (pure Rust, no Tauri dependencies)
 pub mod config;
 pub mod db;
+pub mod dedup;
 pub mod research;
 pub mod research_state;
 pub mod mcp_client;

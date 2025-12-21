@@ -743,6 +743,8 @@ impl ResearchAgent {
         &mut self,
         topics: Vec<String>,
         app_handle: Option<tauri::AppHandle>,
+        condense_briefings: bool,
+        past_cards_context: Option<String>,
     ) -> Result<ResearchResult, String> {
         let start_time = Instant::now();
         info!("Starting research on {} topics", topics.len());
@@ -833,8 +835,8 @@ impl ResearchAgent {
         )?;
 
         // Step 2: Synthesize into briefing cards
-        info!("Synthesizing research into briefing cards");
-        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content, app_handle.as_ref()).await
+        info!("Synthesizing research into briefing cards (condensed: {})", condense_briefings);
+        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content, app_handle.as_ref(), condense_briefings, past_cards_context.as_deref()).await
             .map_err(|e| {
                 let _ = ResearchLogger::log_api_error("synthesis", &e);
                 e.message
@@ -1296,11 +1298,83 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
         &self,
         research_content: &str,
         app_handle: Option<&tauri::AppHandle>,
+        condense_briefings: bool,
+        past_cards_context: Option<&str>,
     ) -> Result<(Vec<BriefingCard>, u32), ResearchError> {
-        let prompt = format!(
-            r#"You are a research assistant creating a personalized daily briefing.
-Synthesize the following research results into clear, actionable briefing cards.
+        // Build the deduplication context if available
+        let dedup_instruction = if let Some(context) = past_cards_context {
+            if !context.is_empty() {
+                format!(
+                    r#"
 
+DEDUPLICATION INSTRUCTIONS:
+{}
+
+When generating cards, avoid creating cards that duplicate these previously covered topics unless there is SIGNIFICANT NEW information. If a topic was recently covered and there's only minor updates, either:
+1. Skip that topic entirely
+2. Briefly mention "Continuing from previous coverage..." with only the new developments
+"#,
+                    context
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let prompt = if condense_briefings {
+            // Condensed mode: one comprehensive card combining all topics
+            format!(
+                r#"You are a research assistant creating a personalized daily briefing.
+Synthesize ALL the following research into ONE comprehensive briefing card that tells a cohesive story.
+{}
+{}
+
+Create a SINGLE comprehensive briefing card following these guidelines:
+
+1. **Combine all topics** into one unified narrative
+2. **Identify connections** and cross-cutting themes between topics
+3. **Prioritize** the most significant developments
+
+For the single card, provide:
+- **Title**: A headline summarizing today's key developments (max 80 chars)
+- **Summary**: Overview of all topics covered (3-4 sentences)
+- **Detailed Content**: COMPREHENSIVE analysis (minimum 400 words, 5-7 full paragraphs)
+  - Weave together insights from ALL research topics
+  - Identify patterns, connections, and overarching themes
+  - Include context, implications, and technical details
+  - Provide actionable takeaways and what to watch for
+  - This is the user's "daily read" - make it engaging and insightful
+- **Sources**: Combined list of all source URLs
+- **Suggested Next**: Key action or focus area based on the briefing
+- **Relevance**: "high" (single briefing is always high priority)
+- **Topic**: "Daily Briefing"
+
+Return ONLY valid JSON in this exact format:
+{{
+  "cards": [
+    {{
+      "title": "Your Daily Briefing: Key Developments",
+      "summary": "Overview covering all topics researched today with the most important findings.",
+      "detailed_content": "Opening paragraph introduces today's key themes and sets the stage for the briefing...\\n\\nSubsequent paragraphs cover each major topic area, weaving them together into a coherent narrative...\\n\\nAnalysis paragraphs explore implications, connections between topics, and deeper insights...\\n\\nConcluding paragraph summarizes key takeaways and what to watch for going forward.",
+      "sources": ["https://example.com/source1", "https://example.com/source2"],
+      "suggested_next": "Key action or focus area",
+      "relevance": "high",
+      "topic": "Daily Briefing"
+    }}
+  ]
+}}
+
+Return the JSON response now:"#,
+                dedup_instruction, research_content
+            )
+        } else {
+            // Standard mode: multiple cards
+            format!(
+                r#"You are a research assistant creating a personalized daily briefing.
+Synthesize the following research results into clear, actionable briefing cards.
+{}
 {}
 
 Generate briefing cards following these guidelines:
@@ -1340,8 +1414,9 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Return the JSON response now:"#,
-            research_content
-        );
+                dedup_instruction, research_content
+            )
+        };
 
         let request = AnthropicRequest {
             model: self.model.clone(),
@@ -1598,7 +1673,7 @@ That's the summary!"#;
     #[tokio::test]
     async fn test_run_research_empty_topics() {
         let mut agent = ResearchAgent::new("test-api-key".to_string(), None, false);
-        let result = agent.run_research(vec![], None).await;
+        let result = agent.run_research(vec![], None, false, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));
     }

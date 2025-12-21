@@ -33,10 +33,24 @@ pub struct ResearchSettings {
     pub enable_web_search: bool,
     #[serde(default)]
     pub retention_days: Option<i32>,  // None = never delete
+    #[serde(default)]
+    pub condense_briefings: bool,  // Combine all topics into one comprehensive card
+    #[serde(default = "default_dedup_days")]
+    pub dedup_days: i32,  // Days to look back for duplicates
+    #[serde(default = "default_dedup_threshold")]
+    pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
 }
 
 fn default_notification_sound() -> bool {
     true
+}
+
+fn default_dedup_days() -> i32 {
+    14
+}
+
+fn default_dedup_threshold() -> f64 {
+    0.75
 }
 
 impl Default for ResearchSettings {
@@ -49,6 +63,9 @@ impl Default for ResearchSettings {
             notification_sound: true,
             enable_web_search: false,
             retention_days: None,
+            condense_briefings: false,
+            dedup_days: default_dedup_days(),
+            dedup_threshold: default_dedup_threshold(),
         }
     }
 }

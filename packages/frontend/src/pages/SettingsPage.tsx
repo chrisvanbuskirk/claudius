@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive } from 'lucide-react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive, Layers, Filter } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
@@ -1524,6 +1524,132 @@ function ResearchSettingsTab() {
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Alternative: Configure <span className="font-medium">Brave Search</span> MCP server (free tier available) in the MCP Servers tab.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Condensed Briefing Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Briefing Format</h3>
+          </div>
+          <div className="flex items-start gap-3">
+            <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input
+                type="checkbox"
+                checked={settings.condense_briefings ?? false}
+                onChange={(e) => autoSave('condense_briefings', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+            </label>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Condensed Briefing
+                </span>
+                {savedIndicator === 'condense_briefings' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Combine all topics into one comprehensive daily briefing instead of separate cards.
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Creates a single in-depth story covering all your research topics with deeper analysis.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Deduplication Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Deduplication</h3>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Prevent repeated briefing cards about topics you've already seen.
+          </p>
+
+          <div className="space-y-4">
+            {/* Lookback Days */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Lookback Period
+                </label>
+                {savedIndicator === 'dedup_days' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  value={settings.dedup_days ?? 14}
+                  onChange={(e) => autoSave('dedup_days', parseInt(e.target.value))}
+                  className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-20 text-right">
+                  {(settings.dedup_days ?? 14) === 0 ? 'Disabled' : `${settings.dedup_days ?? 14} days`}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                How far back to check for duplicate content. Set to 0 to disable deduplication.
+              </p>
+            </div>
+
+            {/* Similarity Threshold */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Similarity Threshold
+                </label>
+                {savedIndicator === 'dedup_threshold' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="50"
+                  max="100"
+                  value={Math.round((settings.dedup_threshold ?? 0.75) * 100)}
+                  onChange={(e) => autoSave('dedup_threshold', parseInt(e.target.value) / 100)}
+                  disabled={(settings.dedup_days ?? 14) === 0}
+                  className={`flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-600 ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}
+                />
+                <span className={`text-sm font-medium text-gray-700 dark:text-gray-300 w-12 text-right ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}>
+                  {Math.round((settings.dedup_threshold ?? 0.75) * 100)}%
+                </span>
+              </div>
+              <p className={`text-xs text-gray-500 dark:text-gray-400 mt-1 ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}>
+                How similar titles must be to be considered duplicates. Higher = stricter matching.
               </p>
             </div>
           </div>
