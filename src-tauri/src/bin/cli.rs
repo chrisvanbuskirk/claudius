@@ -10,9 +10,10 @@ use uuid::Uuid;
 use scopeguard::defer;
 
 use claudius::{
-    db, research_state,
+    db, research_state, image_gen,
     Topic, ResearchAgent, BriefingCard,
     read_api_key, write_api_key, delete_api_key, has_api_key, validate_api_key,
+    read_openai_api_key,
     read_settings, write_settings,
     read_mcp_servers, write_mcp_servers, MCPServer, MCPServersConfig,
     Briefing, get_config_dir,
@@ -840,6 +841,71 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 ],
             ).map_err(|e| format!("Failed to save briefing: {}", e))?;
 
+            let briefing_id = conn.last_insert_rowid();
+
+            // Generate images for cards that have image_prompt (if enabled and API key configured)
+            if settings.enable_image_generation {
+                if let Some(openai_key) = read_openai_api_key() {
+                    if !json {
+                        println!("{} Generating header images...", "→".cyan());
+                    }
+
+                    let mut images_generated = 0;
+                    for (idx, card) in result.cards.iter_mut().enumerate() {
+                        if let Some(ref prompt) = card.image_prompt {
+                            if verbose && !json {
+                                println!("  {} Generating image for card {}...", "→".dimmed(), idx);
+                            }
+
+                            match image_gen::generate_image(prompt, briefing_id, idx, &openai_key).await {
+                                image_gen::ImageGenResult::Success(path) => {
+                                    card.image_path = Some(path.to_string_lossy().to_string());
+                                    images_generated += 1;
+                                    if verbose && !json {
+                                        println!("    {} Image saved", "✓".green());
+                                    }
+                                }
+                                image_gen::ImageGenResult::Disabled => {
+                                    if verbose && !json {
+                                        println!("    {} Image generation disabled", "○".dimmed());
+                                    }
+                                    break;
+                                }
+                                image_gen::ImageGenResult::NoApiKey => {
+                                    if !json {
+                                        println!("    {} No OpenAI API key configured", "!".yellow());
+                                    }
+                                    break;
+                                }
+                                image_gen::ImageGenResult::Failed(err) => {
+                                    if verbose && !json {
+                                        println!("    {} Failed: {}", "✗".red(), err);
+                                    }
+                                    // Continue with other cards
+                                }
+                            }
+                        }
+                    }
+
+                    // Update briefing with image paths if any were generated
+                    if images_generated > 0 {
+                        let updated_cards_json = serde_json::to_string(&result.cards)
+                            .map_err(|e| format!("Failed to serialize updated cards: {}", e))?;
+
+                        conn.execute(
+                            "UPDATE briefings SET cards = ?1 WHERE id = ?2",
+                            rusqlite::params![updated_cards_json, briefing_id],
+                        ).map_err(|e| format!("Failed to update briefing with image paths: {}", e))?;
+
+                        if !json {
+                            println!("{} Generated {} images", "✓".green(), images_generated);
+                        }
+                    }
+                } else if verbose && !json {
+                    println!("{} Image generation enabled but no OpenAI API key configured", "!".yellow());
+                }
+            }
+
             if json {
                 println!("{}", to_json(&serde_json::json!({
                     "status": "completed",
@@ -857,6 +923,20 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 println!("  Model: {}", result.model_used.dimmed());
                 println!();
                 println!("View with: claudius briefings list");
+            }
+
+            // Try to refresh the desktop app if it's running
+            // This uses the single-instance plugin to send a refresh signal
+            if let Err(e) = std::process::Command::new("open")
+                .args(["-a", "Claudius", "--args", "--refresh"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                // Silently ignore if app isn't installed or can't be opened
+                if verbose && !json {
+                    println!("{} Could not refresh desktop app: {}", "!".dimmed(), e);
+                }
             }
         }
 

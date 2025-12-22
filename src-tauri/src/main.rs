@@ -12,8 +12,9 @@ mod research_log;
 mod updater;
 mod housekeeping;
 mod config;
+mod image_gen;
 
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 fn main() {
@@ -24,10 +25,20 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // When a second instance tries to launch, focus the existing main window
-            tracing::info!("Second instance detected, focusing existing window");
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Check if this is a refresh signal from CLI
+            let is_refresh = args.iter().any(|arg| arg == "--refresh" || arg == "refresh");
+
+            if is_refresh {
+                tracing::info!("CLI refresh signal received, emitting briefings:refresh event");
+                let _ = app.emit("briefings:refresh", ());
+            } else {
+                // When a second instance tries to launch, focus the existing main window
+                tracing::info!("Second instance detected, focusing existing window");
+            }
+
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -62,11 +73,16 @@ fn main() {
             commands::update_settings,
             // Notification commands
             commands::request_notification_permission,
-            // API Key commands (stored securely in OS keychain)
+            // API Key commands (stored in ~/.claudius/.env)
             commands::get_api_key,
             commands::set_api_key,
             commands::has_api_key,
             commands::clear_api_key,
+            // OpenAI API Key commands (for DALL-E image generation)
+            commands::get_openai_api_key,
+            commands::set_openai_api_key,
+            commands::has_openai_api_key,
+            commands::clear_openai_api_key,
             // Research commands
             commands::trigger_research,
             commands::run_research_now,

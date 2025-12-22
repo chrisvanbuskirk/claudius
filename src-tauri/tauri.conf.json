@@ -46,7 +46,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://localhost:5173 wss://localhost:5173 https://api.anthropic.com https://api.github.com https://*"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https:; connect-src 'self' ws://localhost:5173 wss://localhost:5173 https://api.anthropic.com https://api.github.com https://*",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$HOME/.claudius/**"]
+      }
     }
   },
   "bundle": {

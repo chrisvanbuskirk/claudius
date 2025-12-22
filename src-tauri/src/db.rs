@@ -416,6 +416,25 @@ pub fn toggle_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> 
 /// Delete briefings older than `days`, excluding any briefings that have bookmarked cards.
 /// Returns the count of deleted briefings.
 pub fn cleanup_old_briefings(conn: &Connection, days: i32) -> std::result::Result<usize, String> {
+    // First get the IDs of briefings that will be deleted (for image cleanup)
+    let mut stmt = conn.prepare(
+        "SELECT id FROM briefings
+         WHERE date < date('now', '-' || ?1 || ' days')
+           AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)"
+    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let ids: Vec<i64> = stmt.query_map([days], |row| row.get(0))
+        .map_err(|e| format!("Failed to query briefing IDs: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Delete images for each briefing
+    for id in &ids {
+        if let Err(e) = crate::image_gen::delete_briefing_images(*id) {
+            tracing::warn!("Failed to delete images for briefing {}: {}", id, e);
+        }
+    }
+
     let deleted = conn.execute(
         "DELETE FROM briefings
          WHERE date < date('now', '-' || ?1 || ' days')
@@ -429,6 +448,11 @@ pub fn cleanup_old_briefings(conn: &Connection, days: i32) -> std::result::Resul
 /// Delete a specific briefing by ID.
 /// Returns true if a briefing was deleted, false if not found.
 pub fn delete_briefing(conn: &Connection, id: i64) -> std::result::Result<bool, String> {
+    // Delete associated images first
+    if let Err(e) = crate::image_gen::delete_briefing_images(id) {
+        tracing::warn!("Failed to delete images for briefing {}: {}", id, e);
+    }
+
     let deleted = conn.execute(
         "DELETE FROM briefings WHERE id = ?1",
         [id],

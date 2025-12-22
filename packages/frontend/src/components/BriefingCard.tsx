@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { Briefing } from '../types';
 
 // Delete Confirmation Dialog
@@ -95,6 +96,15 @@ function isValidUrl(str: string): boolean {
   }
 }
 
+// Generate a placeholder gradient based on a string hash
+function generatePlaceholderGradient(str: string): string {
+  const hash = str.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const hue1 = hash % 360;
+  const hue2 = (hash * 7) % 360;
+  const angle = (hash * 13) % 180;
+  return `linear-gradient(${angle}deg, hsl(${hue1}, 60%, 45%), hsl(${hue2}, 50%, 35%))`;
+}
+
 // Get display text for a source (hostname if URL, otherwise the string itself)
 function getSourceDisplay(source: string): { href: string | null; text: string } {
   if (isValidUrl(source)) {
@@ -182,6 +192,29 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
           <X className="w-4 h-4" />
         </button>
       )}
+
+      {/* Header image or placeholder gradient */}
+      <div className="relative -mx-6 -mt-6 mb-4 h-80 overflow-hidden rounded-t-xl">
+        {briefing.image_path ? (
+          <img
+            src={convertFileSrc(briefing.image_path)}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // Fall back to gradient on error
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              target.parentElement!.style.background = generatePlaceholderGradient(topicName);
+            }}
+          />
+        ) : (
+          <div
+            className="w-full h-full"
+            style={{ background: generatePlaceholderGradient(topicName) }}
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+      </div>
 
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">

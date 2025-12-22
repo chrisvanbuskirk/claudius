@@ -38,6 +38,13 @@ pub struct BriefingCard {
     pub suggested_next: Option<String>,
     pub relevance: String,
     pub topic: String,
+    // Image generation fields (DALL-E)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_style: Option<String>,  // Legacy field, not used with DALL-E
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_path: Option<String>,
 }
 
 /// Result of a research operation.
@@ -861,22 +868,14 @@ impl ResearchAgent {
             result.total_tokens
         );
 
-        // Update phase and emit research:completed event
+        // Note: research:completed event is emitted by the caller (commands.rs)
+        // AFTER saving to database and generating images, to avoid premature UI refresh.
+        // Only update the phase here for CLI progress display.
         research_state::set_phase(&format!(
             "Research complete: {} cards in {:.1}s",
             result.cards.len(),
             result.research_time_ms as f64 / 1000.0
         ));
-        if let Some(app) = &app_handle {
-            let _ = app.emit("research:completed", CompletedEvent {
-                timestamp: get_timestamp(),
-                total_topics: topics.len(),
-                total_cards: result.cards.len(),
-                duration_ms: start_time.elapsed().as_millis(),
-                success: true,
-                error: None,
-            });
-        }
 
         Ok(result)
     }
@@ -1350,6 +1349,8 @@ For the single card, provide:
 - **Suggested Next**: Key action or focus area based on the briefing
 - **Relevance**: "high" (single briefing is always high priority)
 - **Topic**: "Daily Briefing"
+- **Image Prompt**: SHORT visual description (max 8 words, plain text only, no quotes or special characters).
+  Examples: "futuristic city skyline at sunset", "abstract flowing data streams"
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -1361,7 +1362,8 @@ Return ONLY valid JSON in this exact format:
       "sources": ["https://example.com/source1", "https://example.com/source2"],
       "suggested_next": "Key action or focus area",
       "relevance": "high",
-      "topic": "Daily Briefing"
+      "topic": "Daily Briefing",
+      "image_prompt": "abstract network of connected glowing nodes"
     }}
   ]
 }}
@@ -1394,6 +1396,8 @@ For each card, provide:
 - **Suggested Next**: Optional next action or follow-up
 - **Relevance**: "high", "medium", or "low"
 - **Topic**: The original topic this relates to
+- **Image Prompt**: SHORT visual description (max 8 words, plain text only, no quotes or special characters).
+  Examples: "robot hand reaching toward human hand", "stock market charts with upward arrows"
 
 IMPORTANT: The detailed_content must be significantly more comprehensive than the summary.
 The summary is what users see at a glance. The detailed_content is what they read when they want the full analysis.
@@ -1408,7 +1412,8 @@ Return ONLY valid JSON in this exact format:
       "sources": ["https://example.com/source1"],
       "suggested_next": "Optional next action",
       "relevance": "high",
-      "topic": "Original topic name"
+      "topic": "Original topic name",
+      "image_prompt": "futuristic circuit board with glowing pathways"
     }}
   ]
 }}
@@ -1420,7 +1425,7 @@ Return the JSON response now:"#,
 
         let request = AnthropicRequest {
             model: self.model.clone(),
-            max_tokens: 8192, // Increased from 4096 to accommodate detailed_content (150+ words per card)
+            max_tokens: 16384, // Large enough for many cards with detailed_content + image fields
             messages: vec![Message {
                 role: "user".to_string(),
                 content: MessageContent::Text(prompt),
@@ -1597,17 +1602,22 @@ That's the summary!"#;
             relevance: "high".to_string(),
             topic: "Test Topic".to_string(),
             detailed_content: "Detailed test content".to_string(),
+            image_prompt: Some("futuristic technology concept".to_string()),
+            image_style: Some("illustration".to_string()),
+            image_path: None,
         };
 
         let json = serde_json::to_string(&card).unwrap();
         assert!(json.contains("Test Title"));
         assert!(json.contains("Test summary"));
         assert!(json.contains("https://example.com"));
+        assert!(json.contains("futuristic technology"));
 
         // Deserialize back
         let parsed: BriefingCard = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.title, card.title);
         assert_eq!(parsed.sources, card.sources);
+        assert_eq!(parsed.image_prompt, card.image_prompt);
     }
 
     #[test]
@@ -1624,6 +1634,9 @@ That's the summary!"#;
                     relevance: "high".to_string(),
                     topic: "Topic 1".to_string(),
                     detailed_content: "Detailed content 1".to_string(),
+                    image_prompt: None,
+                    image_style: None,
+                    image_path: None,
                 }
             ],
             research_time_ms: 1500,

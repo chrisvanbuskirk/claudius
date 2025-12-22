@@ -8,6 +8,7 @@ import type {
   SynthesisStartedEvent,
   SynthesisCompletedEvent,
   SavingEvent,
+  GeneratingImagesEvent,
   CompletedEvent,
   CancelledEvent,
   ResetEvent,
@@ -21,8 +22,9 @@ const PHASE_TIMEOUTS: Record<string, number> = {
   researching: 180_000,   // 3 minutes per topic (will reset on each topic)
   synthesizing: 120_000,  // 2 minutes for synthesis
   saving: 30_000,         // 30 seconds to save
+  generating_images: 300_000, // 5 minutes for image generation (DALL-E ~15-20s per image)
 };
-const OVERALL_TIMEOUT = 480_000;    // 8 minutes total
+const OVERALL_TIMEOUT = 720_000;    // 12 minutes total (includes image generation)
 const INACTIVITY_TIMEOUT = 120_000; // 2 minutes of no events
 const INACTIVITY_CHECK_INTERVAL = 30_000; // Check every 30 seconds
 
@@ -99,7 +101,8 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
 
     // Handler for timeouts - cancel research and show error
     const handleTimeout = async (reason: string) => {
-      console.error(`Research timeout: ${reason}`);
+      console.error(`[ResearchContext] TIMEOUT: ${reason}`);
+      console.log('[ResearchContext] Setting isRunning=false due to timeout');
       clearAllTimeouts();
 
       try {
@@ -152,7 +155,8 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
     unlistenPromises.push(
       listen<ResearchStartedEvent>('research:started', (event) => {
         if (!mounted) return;
-        console.log('Research started event:', event.payload);
+        console.log('[ResearchContext] research:started event:', event.payload);
+        console.log('[ResearchContext] Setting isRunning=true');
         updateLastEventTime();
 
         // Clear any existing timeouts from previous session
@@ -271,11 +275,26 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
       })
     );
 
+    // Generating images (DALL-E)
+    unlistenPromises.push(
+      listen<GeneratingImagesEvent>('research:generating_images', (event) => {
+        if (!mounted) return;
+        console.log('Generating images event:', event.payload);
+        updateLastEventTime();
+        startPhaseTimeout('generating_images');
+        setProgress((prev) => ({
+          ...prev,
+          currentPhase: 'generating_images',
+        }));
+      })
+    );
+
     // Completed
     unlistenPromises.push(
       listen<CompletedEvent>('research:completed', (event) => {
         if (!mounted) return;
-        console.log('Research completed event:', event.payload);
+        console.log('[ResearchContext] research:completed event:', event.payload);
+        console.log('[ResearchContext] Setting isRunning=false, currentPhase=complete');
 
         // Clear all timeouts since research completed
         clearAllTimeouts();

@@ -11,6 +11,10 @@ export interface Briefing {
   topic_name: string;
   content?: string; // Legacy field
   metadata?: Record<string, unknown>;
+  // Image generation fields (DALL-E)
+  image_prompt?: string;
+  image_style?: string;  // Legacy field (not used with DALL-E)
+  image_path?: string;
 }
 
 export interface Topic {
@@ -41,6 +45,7 @@ export interface ResearchSettings {
   condense_briefings?: boolean;  // Combine all topics into one comprehensive card
   dedup_days?: number;  // Days to look back for duplicates (default: 14)
   dedup_threshold?: number;  // Similarity threshold 0-1 (default: 0.75)
+  enable_image_generation?: boolean;  // Generate header images using DALL-E
 }
 
 export interface UserFeedback {
@@ -84,4 +89,28 @@ export interface Bookmark {
   briefing_id: number;
   card_index: number;
   created_at: string;
+}
+
+// Backend returns briefings with cards as JSON string
+export interface BackendBriefing {
+  id: number;
+  date: string;
+  title: string;
+  cards: string; // JSON string of BriefingCardData[]
+  research_time_ms?: number;
+  model_used?: string;
+  total_tokens?: number;
+}
+
+// Card data structure within the cards JSON
+export interface BriefingCardData {
+  title: string;
+  summary: string;
+  detailed_content?: string;
+  sources?: string[];
+  suggested_next?: string;
+  relevance?: string;
+  topic?: string;
+  image_prompt?: string;
+  image_path?: string;
 }

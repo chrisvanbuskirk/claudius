@@ -169,6 +169,9 @@ mod tests {
             suggested_next: None,
             relevance: "high".to_string(),
             topic: "AI News".to_string(),
+            image_prompt: None,
+            image_style: None,
+            image_path: None,
         };
 
         let past = vec![CardFingerprint {
@@ -190,6 +193,9 @@ mod tests {
             suggested_next: None,
             relevance: "high".to_string(),
             topic: "AI News".to_string(),
+            image_prompt: None,
+            image_style: None,
+            image_path: None,
         };
 
         let past = vec![CardFingerprint {
@@ -213,6 +219,9 @@ mod tests {
                 suggested_next: None,
                 relevance: "high".to_string(),
                 topic: "AI".to_string(),
+                image_prompt: None,
+                image_style: None,
+                image_path: None,
             },
             BriefingCard {
                 title: "OpenAI releases GPT-5".to_string(),
@@ -222,6 +231,9 @@ mod tests {
                 suggested_next: None,
                 relevance: "high".to_string(),
                 topic: "AI".to_string(),
+                image_prompt: None,
+                image_style: None,
+                image_path: None,
             },
         ];
 

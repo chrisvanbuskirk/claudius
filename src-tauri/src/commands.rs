@@ -52,6 +52,8 @@ pub struct ResearchSettings {
     pub dedup_days: i32,  // Days to look back for duplicates
     #[serde(default = "default_dedup_threshold")]
     pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
+    #[serde(default)]
+    pub enable_image_generation: bool,  // Generate header images using DALL-E
 }
 
 fn default_notification_sound() -> bool {
@@ -151,6 +153,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             condense_briefings: false,
             dedup_days: default_dedup_days(),
             dedup_threshold: default_dedup_threshold(),
+            enable_image_generation: true,
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -408,6 +411,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         condense_briefings: false,
         dedup_days: default_dedup_days(),
         dedup_threshold: default_dedup_threshold(),
+        enable_image_generation: true,
     });
 
     // Get API key from file-based storage
@@ -521,7 +525,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         "total_cards": result.cards.len(),
     }));
 
-    // Save to database
+    // Save to database first to get briefing_id for images
     let cards_json = serde_json::to_string(&result.cards)
         .map_err(|e| format!("Failed to serialize cards: {}", e))?;
 
@@ -540,6 +544,63 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
             result.total_tokens as i64,
         ],
     ).map_err(|e| format!("Failed to insert briefing: {}", e))?;
+
+    let briefing_id = conn.last_insert_rowid();
+
+    // Generate images for cards that have image_prompt (if enabled and API key configured)
+    if settings.enable_image_generation {
+        if let Some(openai_key) = get_openai_api_key_for_image_gen() {
+            use claudius::image_gen;
+
+            research_state::set_phase("Generating header images...");
+            let _ = app.emit("research:generating_images", serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "total_cards": result.cards.len(),
+            }));
+
+            let mut images_generated = 0;
+            for (idx, card) in result.cards.iter_mut().enumerate() {
+                if let Some(ref prompt) = card.image_prompt {
+                    tracing::info!("Generating image for card {}: prompt='{}'", idx, prompt);
+
+                    match image_gen::generate_image(prompt, briefing_id, idx, &openai_key).await {
+                        image_gen::ImageGenResult::Success(path) => {
+                            card.image_path = Some(path.to_string_lossy().to_string());
+                            images_generated += 1;
+                            tracing::info!("Image generated for card {}: {:?}", idx, path);
+                        }
+                        image_gen::ImageGenResult::Disabled => {
+                            tracing::debug!("Image generation disabled");
+                            break;
+                        }
+                        image_gen::ImageGenResult::NoApiKey => {
+                            tracing::warn!("No OpenAI API key configured, skipping images");
+                            break;
+                        }
+                        image_gen::ImageGenResult::Failed(err) => {
+                            tracing::warn!("Failed to generate image for card {}: {}", idx, err);
+                            // Continue with other cards
+                        }
+                    }
+                }
+            }
+
+            // Update briefing with image paths if any were generated
+            if images_generated > 0 {
+                let updated_cards_json = serde_json::to_string(&result.cards)
+                    .map_err(|e| format!("Failed to serialize updated cards: {}", e))?;
+
+                conn.execute(
+                    "UPDATE briefings SET cards = ?1 WHERE id = ?2",
+                    rusqlite::params![updated_cards_json, briefing_id],
+                ).map_err(|e| format!("Failed to update briefing with image paths: {}", e))?;
+
+                tracing::info!("Updated briefing {} with {} image paths", briefing_id, images_generated);
+            }
+        } else {
+            tracing::debug!("Image generation enabled but no OpenAI API key configured");
+        }
+    }
 
     tracing::info!(
         "Research completed: {} cards saved, {}ms",
@@ -997,6 +1058,44 @@ pub fn has_api_key() -> Result<bool, String> {
 #[tauri::command]
 pub fn clear_api_key() -> Result<(), String> {
     delete_api_key_from_file()
+}
+
+// ============================================================================
+// OpenAI API Key commands - For DALL-E image generation
+// Uses functions from claudius::config (lib.rs)
+// ============================================================================
+
+/// Get the OpenAI API key for use in image generation (returns full key, not masked)
+pub fn get_openai_api_key_for_image_gen() -> Option<String> {
+    claudius::read_openai_api_key()
+}
+
+#[tauri::command]
+pub fn get_openai_api_key() -> Result<Option<String>, String> {
+    // Return masked version with dots for security
+    if let Some(key) = claudius::read_openai_api_key() {
+        let dot_count = std::cmp::min(key.len(), 20);
+        let masked = "•".repeat(dot_count);
+        Ok(Some(masked))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn set_openai_api_key(api_key: String) -> Result<(), String> {
+    claudius::validate_openai_api_key(&api_key)?;
+    claudius::write_openai_api_key(&api_key)
+}
+
+#[tauri::command]
+pub fn has_openai_api_key() -> Result<bool, String> {
+    Ok(claudius::has_openai_api_key())
+}
+
+#[tauri::command]
+pub fn clear_openai_api_key() -> Result<(), String> {
+    claudius::delete_openai_api_key()
 }
 
 // ============================================================================

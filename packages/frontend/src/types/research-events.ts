@@ -57,6 +57,11 @@ export interface SavingEvent extends ResearchEvent {
   total_cards: number;
 }
 
+// Event: Generating header images (DALL-E)
+export interface GeneratingImagesEvent extends ResearchEvent {
+  total_cards: number;
+}
+
 // Event: Synthesis started
 export interface SynthesisStartedEvent extends ResearchEvent {
   research_content_length: number;
@@ -116,6 +121,7 @@ export type ResearchProgressEvent =
   | { type: 'research:synthesis_started'; data: SynthesisStartedEvent }
   | { type: 'research:synthesis_completed'; data: SynthesisCompletedEvent }
   | { type: 'research:saving'; data: SavingEvent }
+  | { type: 'research:generating_images'; data: GeneratingImagesEvent }
   | { type: 'research:completed'; data: CompletedEvent }
   | { type: 'research:cancelled'; data: CancelledEvent }
   | { type: 'research:reset'; data: ResetEvent }
