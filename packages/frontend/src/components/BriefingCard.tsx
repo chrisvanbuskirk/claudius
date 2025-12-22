@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle } from 'lucide-react';
+import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle, Printer } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { Briefing } from '../types';
@@ -134,6 +134,11 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
   // const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Default values for optional fields (must be before handlers that use them)
+  const relevance = (briefing.relevance || 'medium') as 'high' | 'medium' | 'low';
+  const sources = briefing.sources || [];
+  const topicName = briefing.topic_name || 'General';
+
   const handleDelete = () => {
     setShowDeleteConfirm(true);
   };
@@ -143,10 +148,191 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
     onDelete?.();
   };
 
-  // Default values for optional fields
-  const relevance = (briefing.relevance || 'medium') as 'high' | 'medium' | 'low';
-  const sources = briefing.sources || [];
-  const topicName = briefing.topic_name || 'General';
+  const handlePrint = async () => {
+    console.log('[Print] handlePrint called');
+
+    const formattedDate = new Date(briefing.created_at).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    const sourcesHtml = sources.length > 0
+      ? `<div class="sources">
+          <h3>Sources</h3>
+          <ul>
+            ${sources.map(source => {
+              const { href, text } = getSourceDisplay(source);
+              return href
+                ? `<li><a href="${href}" target="_blank">${text}</a></li>`
+                : `<li>${text}</li>`;
+            }).join('')}
+          </ul>
+        </div>`
+      : '';
+
+    const detailedContentHtml = briefing.detailed_content
+      ? `<div class="detailed-content">
+          <h3>Detailed Research</h3>
+          <p>${briefing.detailed_content.replace(/\n/g, '<br>')}</p>
+        </div>`
+      : '';
+
+    const suggestedNextHtml = briefing.suggested_next
+      ? `<div class="suggested-next">
+          <h3>Suggested Next Step</h3>
+          <p>${briefing.suggested_next}</p>
+        </div>`
+      : '';
+
+    // Generate image HTML if available
+    const imageHtml = briefing.image_path
+      ? `<div class="header-image">
+          <img src="file://${briefing.image_path}" alt="" />
+        </div>`
+      : '';
+
+    const printContent = `<!DOCTYPE html>
+<html>
+<head>
+<title>${briefing.title} - Claudius Briefing</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.6;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  color: #1a1a1a;
+}
+.header-image {
+  margin: -40px -20px 24px -20px;
+  max-height: 300px;
+  overflow: hidden;
+}
+.header-image img {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+}
+.header {
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+}
+.meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #6b7280;
+}
+.relevance {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.relevance.high { background: #fee2e2; color: #dc2626; }
+.relevance.medium { background: #fef3c7; color: #d97706; }
+.relevance.low { background: #dbeafe; color: #2563eb; }
+h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  color: #111827;
+}
+.summary {
+  font-size: 18px;
+  color: #374151;
+  margin-bottom: 24px;
+}
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+  margin: 24px 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.detailed-content p, .suggested-next p {
+  margin: 0;
+  color: #4b5563;
+}
+.sources ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.sources li {
+  margin-bottom: 4px;
+}
+.sources a {
+  color: #6366f1;
+  text-decoration: none;
+}
+.suggested-next {
+  background: #f0fdf4;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #bbf7d0;
+}
+.footer {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: center;
+}
+@media print {
+  body { padding: 20px; }
+  .suggested-next { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+${imageHtml}
+<div class="header">
+  <div class="meta">
+    <span class="relevance ${relevance}">${relevance.toUpperCase()}</span>
+    <span>${topicName}</span>
+    <span>•</span>
+    <span>${formattedDate}</span>
+  </div>
+  <h1>${briefing.title}</h1>
+</div>
+<div class="summary">${briefing.summary}</div>
+${detailedContentHtml}
+${sourcesHtml}
+${suggestedNextHtml}
+<div class="footer">
+  Generated by Claudius • Printed ${new Date().toLocaleDateString()}
+</div>
+</body>
+</html>`;
+
+    try {
+      // Use Tauri invoke to call a Rust command that opens the print preview
+      const { invoke } = await import('@tauri-apps/api/core');
+      console.log('[Print] Calling print_card command...');
+      await invoke('print_card', { html: printContent });
+      console.log('[Print] Command completed');
+    } catch (error) {
+      console.error('[Print] Tauri command failed:', error);
+      // Fallback: copy to clipboard and show message
+      try {
+        await navigator.clipboard.writeText(briefing.summary + '\n\n' + (briefing.detailed_content || ''));
+        alert('Print is not available. Content copied to clipboard - paste into a document to print.');
+      } catch {
+        alert('Print is not available in the desktop app.');
+      }
+    }
+  };
 
   const relevanceColors = {
     high: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800',
@@ -353,6 +539,13 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
             aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
           >
             <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+          </button>
+          <button
+            onClick={handlePrint}
+            className="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
+            aria-label="Print this card"
+          >
+            <Printer className="w-4 h-4" />
           </button>
           <button
             onClick={onOpenChat}

@@ -1737,3 +1737,53 @@ pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), Str
         }
     }
 }
+
+// ============================================================================
+// Print commands
+// ============================================================================
+
+/// Write HTML to a temp file and open it in the default browser for printing
+#[tauri::command]
+pub async fn print_card(html: String) -> Result<(), String> {
+    use std::io::Write;
+
+    // Create temp file
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join("claudius-print.html");
+
+    tracing::info!("Writing print content to {:?}", file_path);
+
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    file.write_all(html.as_bytes())
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    // Open in default browser
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &file_path.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    tracing::info!("Opened print preview in browser");
+    Ok(())
+}

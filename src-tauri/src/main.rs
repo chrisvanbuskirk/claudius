@@ -126,6 +126,8 @@ fn main() {
             // Auto-update commands
             commands::check_for_update,
             commands::install_update_and_restart,
+            // Print commands
+            commands::print_card,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
