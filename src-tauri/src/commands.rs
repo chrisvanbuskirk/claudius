@@ -54,6 +54,8 @@ pub struct ResearchSettings {
     pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
     #[serde(default)]
     pub enable_image_generation: bool,  // Generate header images using DALL-E
+    #[serde(default = "default_research_mode")]
+    pub research_mode: String,  // "standard" | "firecrawl" - determines which tools are used
 }
 
 fn default_notification_sound() -> bool {
@@ -66,6 +68,10 @@ fn default_dedup_days() -> i32 {
 
 fn default_dedup_threshold() -> f64 {
     0.75
+}
+
+fn default_research_mode() -> String {
+    "standard".to_string()
 }
 
 fn get_config_dir() -> PathBuf {
@@ -154,6 +160,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             dedup_days: default_dedup_days(),
             dedup_threshold: default_dedup_threshold(),
             enable_image_generation: true,
+            research_mode: default_research_mode(),
         });
     }
     let content = std::fs::read_to_string(&path)
@@ -412,6 +419,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         dedup_days: default_dedup_days(),
         dedup_threshold: default_dedup_threshold(),
         enable_image_generation: true,
+        research_mode: default_research_mode(),
     });
 
     // Get API key from file-based storage
@@ -486,7 +494,12 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     };
 
     // Create research agent and set cancellation token
-    let mut agent = ResearchAgent::new(api_key, Some(settings.model.clone()), settings.enable_web_search);
+    let mut agent = ResearchAgent::new(
+        api_key,
+        Some(settings.model.clone()),
+        settings.enable_web_search,
+        settings.research_mode.clone(),
+    );
     agent.set_cancellation_token(cancellation_token);
 
     let mut result = match agent.run_research(topics, Some(app.clone()), settings.condense_briefings, past_cards_context).await {

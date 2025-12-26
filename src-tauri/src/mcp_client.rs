@@ -42,6 +42,8 @@ pub struct McpConnection {
     pub server_id: String,
     child: Child,
     tools: Vec<McpTool>,
+    /// Original config for restarting the server if it crashes
+    config: McpServerConfig,
 }
 
 impl McpConnection {
@@ -128,6 +130,9 @@ impl McpClient {
             .unwrap_or_default();
 
         info!("Starting MCP server '{}': {} {:?}", server.name, command, args);
+        if !env.is_empty() {
+            info!("MCP server '{}' env vars: {:?}", server.name, env.keys().collect::<Vec<_>>());
+        }
 
         // Spawn the server process
         let mut cmd = Command::new(command);
@@ -136,9 +141,14 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Add environment variables
+        // Add environment variables from config
         for (key, value) in &env {
             cmd.env(key, value);
+        }
+        
+        // Ensure PATH is inherited for npx/node to work
+        if let Ok(path) = std::env::var("PATH") {
+            cmd.env("PATH", path);
         }
 
         let mut child = cmd
@@ -213,6 +223,7 @@ impl McpClient {
             server_id: server.id.clone(),
             child,
             tools,
+            config: server.clone(),
         })
     }
 
@@ -233,15 +244,33 @@ impl McpClient {
     }
 
     /// Read a JSON-RPC response from the server.
+    /// This function skips over notifications (messages without an "id" field)
+    /// and keeps reading until it gets an actual response.
     fn read_response(reader: &mut BufReader<impl std::io::Read>) -> Result<Value, String> {
-        let mut line = String::new();
-        reader.read_line(&mut line)
-            .map_err(|e| format!("Failed to read from MCP server: {}", e))?;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line)
+                .map_err(|e| format!("Failed to read from MCP server: {}", e))?;
 
-        debug!("MCP response: {}", line.trim());
+            if line.trim().is_empty() {
+                continue;
+            }
 
-        serde_json::from_str(&line)
-            .map_err(|e| format!("Failed to parse MCP response: {}", e))
+            debug!("MCP message: {}", line.trim());
+
+            let value: Value = serde_json::from_str(&line)
+                .map_err(|e| format!("Failed to parse MCP response: {}", e))?;
+
+            // Skip notifications (they have a "method" field but no "id" field)
+            // These are progress updates, logs, etc. that we don't need to process
+            if value.get("method").is_some() && value.get("id").is_none() {
+                debug!("Skipping MCP notification: {}", 
+                    value.get("method").and_then(|m| m.as_str()).unwrap_or("unknown"));
+                continue;
+            }
+
+            return Ok(value);
+        }
     }
 
     /// Get all available tools from all connected servers.
@@ -269,11 +298,16 @@ impl McpClient {
 
     /// Call a tool on the appropriate MCP server.
     pub fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<Value, String> {
+        self.call_tool_with_retry(tool_name, arguments, true)
+    }
+    
+    /// Internal implementation of call_tool with optional retry on broken pipe.
+    fn call_tool_with_retry(&mut self, tool_name: &str, arguments: Value, allow_retry: bool) -> Result<Value, String> {
         // Find which server has this tool
-        let server_idx = self.tool_routes.get(tool_name)
+        let server_idx = *self.tool_routes.get(tool_name)
             .ok_or_else(|| format!("Unknown tool: {}", tool_name))?;
 
-        let conn = self.connections.get_mut(*server_idx)
+        let conn = self.connections.get_mut(server_idx)
             .ok_or_else(|| "Server connection not found".to_string())?;
 
         // Find the actual tool name (might be prefixed)
@@ -297,9 +331,50 @@ impl McpClient {
 
         let call_start = std::time::Instant::now();
 
-        let stdin = conn.child.stdin.as_mut()
-            .ok_or_else(|| "Server stdin not available".to_string())?;
-        Self::send_request(stdin, &request)?;
+        // Try to send request - detect broken pipe
+        let send_result = {
+            let stdin = conn.child.stdin.as_mut()
+                .ok_or_else(|| "Server stdin not available".to_string())?;
+            Self::send_request(stdin, &request)
+        };
+        
+        // If we got a broken pipe error, try to restart the server and retry
+        if let Err(ref e) = send_result {
+            if e.contains("Broken pipe") || e.contains("os error 32") {
+                if allow_retry {
+                    warn!("MCP server '{}' has crashed (broken pipe), attempting restart...", conn.server_name);
+                    
+                    // Get the config before dropping the connection
+                    let config = conn.config.clone();
+                    let server_name = conn.server_name.clone();
+                    
+                    // Try to restart the server
+                    // Use tokio's block_in_place to run async code from sync context
+                    let restart_result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(Self::connect_to_server(&config))
+                    });
+                    match restart_result {
+                        Ok(new_conn) => {
+                            info!("Successfully restarted MCP server '{}'", server_name);
+                            // Replace the old connection
+                            self.connections[server_idx] = new_conn;
+                            // Retry the tool call (without allowing another retry)
+                            return self.call_tool_with_retry(tool_name, arguments, false);
+                        }
+                        Err(restart_err) => {
+                            warn!("Failed to restart MCP server '{}': {}", server_name, restart_err);
+                            return Err(format!("MCP server crashed and failed to restart: {}", restart_err));
+                        }
+                    }
+                } else {
+                    return Err(format!("MCP server crashed after restart attempt: {}", e));
+                }
+            }
+        }
+        send_result?;
+
+        let conn = self.connections.get_mut(server_idx)
+            .ok_or_else(|| "Server connection not found after send".to_string())?;
 
         let stdout = conn.child.stdout.take()
             .ok_or_else(|| "Server stdout not available".to_string())?;

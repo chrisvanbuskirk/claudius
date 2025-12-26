@@ -762,6 +762,7 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 api_key,
                 Some(settings.model.clone()),
                 settings.enable_web_search,
+                settings.research_mode.clone(),
             );
 
             let start = std::time::Instant::now();

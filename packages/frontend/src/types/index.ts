@@ -46,6 +46,7 @@ export interface ResearchSettings {
   dedup_days?: number;  // Days to look back for duplicates (default: 14)
   dedup_threshold?: number;  // Similarity threshold 0-1 (default: 0.75)
   enable_image_generation?: boolean;  // Generate header images using DALL-E
+  research_mode?: 'standard' | 'firecrawl';  // Research mode - standard uses Brave/Perplexity, firecrawl uses Firecrawl for deep extraction
 }
 
 export interface UserFeedback {

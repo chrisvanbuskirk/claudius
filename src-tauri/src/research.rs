@@ -576,11 +576,13 @@ pub struct ResearchAgent {
     cancellation_token: Option<Arc<AtomicBool>>,
     /// Enable Claude's built-in web search ($0.01/search)
     enable_web_search: bool,
+    /// Research mode: "standard" or "firecrawl"
+    research_mode: String,
 }
 
 impl ResearchAgent {
     /// Create a new research agent.
-    pub fn new(api_key: String, model: Option<String>, enable_web_search: bool) -> Self {
+    pub fn new(api_key: String, model: Option<String>, enable_web_search: bool, research_mode: String) -> Self {
         // Try to read GitHub token from environment or config
         let github_token = std::env::var("GITHUB_TOKEN").ok().or_else(|| {
             // Try to read from ~/.claudius/.env
@@ -616,6 +618,7 @@ impl ResearchAgent {
             builtin_tools,
             cancellation_token: None,
             enable_web_search,
+            research_mode,
         }
     }
 
@@ -1339,7 +1342,9 @@ Create a SINGLE comprehensive briefing card following these guidelines:
 For the single card, provide:
 - **Title**: A headline summarizing today's key developments (max 80 chars)
 - **Summary**: Overview of all topics covered (3-4 sentences)
-- **Detailed Content**: COMPREHENSIVE analysis (minimum 400 words, 5-7 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE analysis using MARKDOWN formatting (minimum 400 words, 5-7 full paragraphs)
+  - Use **bold text** for section headers and key terms (e.g., **Key Themes**, **Implications**)
+  - Use bullet points or numbered lists for multiple items
   - Weave together insights from ALL research topics
   - Identify patterns, connections, and overarching themes
   - Include context, implications, and technical details
@@ -1358,7 +1363,7 @@ Return ONLY valid JSON in this exact format:
     {{
       "title": "Your Daily Briefing: Key Developments",
       "summary": "Overview covering all topics researched today with the most important findings.",
-      "detailed_content": "Opening paragraph introduces today's key themes and sets the stage for the briefing...\\n\\nSubsequent paragraphs cover each major topic area, weaving them together into a coherent narrative...\\n\\nAnalysis paragraphs explore implications, connections between topics, and deeper insights...\\n\\nConcluding paragraph summarizes key takeaways and what to watch for going forward.",
+      "detailed_content": "**Key Themes**\\n\\nOpening paragraph introduces key themes and sets the stage for the briefing.\\n\\n**Topic Area One**\\n\\nThis section covers the first major topic area with **key findings** highlighted.\\n\\n- Important point one\\n- Important point two\\n\\n**Topic Area Two**\\n\\nSubsequent sections cover each major topic area, weaving them together into a coherent narrative.\\n\\n**Implications**\\n\\nAnalysis explores implications, connections between topics, and deeper insights.\\n\\n**Key Takeaways**\\n\\nConcluding section summarizes key takeaways and what to watch for going forward.",
       "sources": ["https://example.com/source1", "https://example.com/source2"],
       "suggested_next": "Key action or focus area",
       "relevance": "high",
@@ -1388,7 +1393,9 @@ Generate briefing cards following these guidelines:
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
 - **Summary**: Brief overview (2-4 sentences) - what the user sees by default
-- **Detailed Content**: COMPREHENSIVE research analysis (minimum 150 words, 2-3 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE research analysis using MARKDOWN formatting (minimum 150 words, 2-3 full paragraphs)
+  - Use **bold** for key terms, important findings, and emphasis
+  - Use bullet points or numbered lists when presenting multiple items
   - Include context, implications, technical details, and deeper insights
   - This should be substantially longer and more detailed than the summary
   - Think of this as the "full story" while summary is the "headline"
@@ -1408,7 +1415,7 @@ Return ONLY valid JSON in this exact format:
     {{
       "title": "Card title",
       "summary": "Brief overview with key findings and why it matters to the user.",
-      "detailed_content": "First paragraph provides context and background information about the topic, explaining the current situation and recent developments.\\n\\nSecond paragraph dives into the technical details, implications, and analysis of what this means. Include specific data points, quotes, or findings from the research.\\n\\nThird paragraph discusses future implications, what to watch for, and how this connects to broader trends or related topics.",
+      "detailed_content": "**Context and Background**\\n\\nFirst paragraph provides context and background information about the topic, explaining the current situation and recent developments.\\n\\n**Key Findings**\\n\\nSecond paragraph dives into the technical details, implications, and analysis of what this means:\\n\\n- Important finding or data point\\n- Another key insight from the research\\n- Relevant quote or statistic\\n\\n**Looking Ahead**\\n\\nThird paragraph discusses future implications, what to watch for, and how this connects to broader trends or related topics.",
       "sources": ["https://example.com/source1"],
       "suggested_next": "Optional next action",
       "relevance": "high",
@@ -1593,6 +1600,30 @@ That's the summary!"#;
     }
 
     #[test]
+    fn test_parse_briefing_response_with_markdown_content() {
+        // Test that detailed_content with markdown formatting is parsed correctly
+        let response = r#"{"cards": [{"title": "Test Card", "summary": "Brief summary", "detailed_content": "**Context and Background**\n\nFirst paragraph with **bold text** and context.\n\n**Key Findings**\n\n- Finding one\n- Finding two\n- Finding three\n\n**Looking Ahead**\n\nConclusion with implications.", "sources": ["https://example.com"], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
+        let cards = parse_briefing_response(response).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert!(cards[0].detailed_content.contains("**Context and Background**"));
+        assert!(cards[0].detailed_content.contains("- Finding one"));
+        assert!(cards[0].detailed_content.contains("**Key Findings**"));
+    }
+
+    #[test]
+    fn test_parse_briefing_response_condensed_with_markdown() {
+        // Test condensed briefing format with markdown sections
+        let response = r#"{"cards": [{"title": "Your Daily Briefing", "summary": "Overview of all topics", "detailed_content": "**Key Themes**\n\nIntroduction to themes.\n\n**Topic Area One**\n\nFirst topic coverage with **highlights**.\n\n- Point one\n- Point two\n\n**Topic Area Two**\n\nSecond topic coverage.\n\n**Implications**\n\nAnalysis of implications.\n\n**Key Takeaways**\n\nSummary of takeaways.", "sources": ["https://source1.com", "https://source2.com"], "suggested_next": "Focus area", "relevance": "high", "topic": "Daily Briefing"}]}"#;
+        let cards = parse_briefing_response(response).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].topic, "Daily Briefing");
+        assert!(cards[0].detailed_content.contains("**Key Themes**"));
+        assert!(cards[0].detailed_content.contains("**Topic Area One**"));
+        assert!(cards[0].detailed_content.contains("**Implications**"));
+        assert!(cards[0].detailed_content.contains("**Key Takeaways**"));
+    }
+
+    #[test]
     fn test_briefing_card_serialization() {
         let card = BriefingCard {
             title: "Test Title".to_string(),
@@ -1658,21 +1689,24 @@ That's the summary!"#;
 
     #[test]
     fn test_research_agent_creation() {
-        let agent = ResearchAgent::new("test-api-key".to_string(), None, false);
+        let agent = ResearchAgent::new("test-api-key".to_string(), None, false, "standard".to_string());
         assert_eq!(agent.model, "claude-haiku-4-5-20251001");
         assert!(!agent.enable_web_search);
+        assert_eq!(agent.research_mode, "standard");
 
         let agent_custom = ResearchAgent::new(
             "test-api-key".to_string(),
             Some("claude-opus-4-5-20251101".to_string()),
-            false
+            false,
+            "firecrawl".to_string()
         );
         assert_eq!(agent_custom.model, "claude-opus-4-5-20251101");
+        assert_eq!(agent_custom.research_mode, "firecrawl");
     }
 
     #[test]
     fn test_research_agent_with_web_search() {
-        let agent = ResearchAgent::new("test-api-key".to_string(), None, true);
+        let agent = ResearchAgent::new("test-api-key".to_string(), None, true, "standard".to_string());
         assert!(agent.enable_web_search);
 
         // Test that get_tools_json includes web_search when enabled
@@ -1685,7 +1719,7 @@ That's the summary!"#;
 
     #[tokio::test]
     async fn test_run_research_empty_topics() {
-        let mut agent = ResearchAgent::new("test-api-key".to_string(), None, false);
+        let mut agent = ResearchAgent::new("test-api-key".to_string(), None, false, "standard".to_string());
         let result = agent.run_research(vec![], None, false, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));

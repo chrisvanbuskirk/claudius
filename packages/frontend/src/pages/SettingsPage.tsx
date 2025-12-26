@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive, Layers, Filter, Image } from 'lucide-react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive, Layers, Filter, Image, Flame, Zap, Info } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTopics, useMCPServers, useSettings, useApiKey, useOpenAIApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
@@ -330,7 +330,7 @@ interface QuickSetupServer {
   id: string;
   name: string;
   description: string;
-  icon: 'Search' | 'Bot' | 'Github';
+  icon: 'Search' | 'Bot' | 'Github' | 'Flame';
   pricing: string;
   apiKeyLabel: string;
   apiKeyUrl: string;
@@ -380,6 +380,19 @@ const QUICK_SETUP_SERVERS: QuickSetupServer[] = [
     args: ['-y', '@modelcontextprotocol/server-github'],
     recommended: false,
   },
+  {
+    id: 'firecrawl',
+    name: 'Firecrawl',
+    description: 'Deep web scraping and extraction for comprehensive research',
+    icon: 'Flame',
+    pricing: 'Pay-as-you-go',
+    apiKeyLabel: 'API Key',
+    apiKeyUrl: 'https://firecrawl.dev/app/api-keys',
+    apiKeyEnvVar: 'FIRECRAWL_API_KEY',
+    command: 'npx',
+    args: ['-y', 'firecrawl-mcp'],
+    recommended: false,
+  },
 ];
 
 // Icon component mapping for Quick Setup
@@ -391,6 +404,8 @@ function QuickSetupIcon({ icon, className }: { icon: QuickSetupServer['icon']; c
       return <Bot className={className} />;
     case 'Github':
       return <Github className={className} />;
+    case 'Flame':
+      return <Flame className={className} />;
   }
 }
 
@@ -1313,8 +1328,15 @@ function ResearchSettingsTab() {
     loading: openaiKeyLoading,
     setApiKey: setOpenaiApiKey
   } = useOpenAIApiKey();
+  const { servers: mcpServers } = useMCPServers();
   const [running, setRunning] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState<string | null>(null);
+  
+  // Check if Firecrawl MCP server is configured
+  const hasFirecrawlConfigured = mcpServers.some(s => 
+    s.name.toLowerCase().includes('firecrawl') || 
+    (s.config && JSON.stringify(s.config).toLowerCase().includes('firecrawl'))
+  );
 
   // Auto-save helper with visual feedback
   const autoSave = async (key: string, value: unknown) => {
@@ -1658,7 +1680,104 @@ function ResearchSettingsTab() {
           )}
         </div>
 
-        {/* Web Search Section */}
+        {/* Research Mode Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Research Mode</h3>
+            {savedIndicator === 'research_mode' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            {/* Standard Mode */}
+            <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+              hover:bg-gray-100 dark:hover:bg-gray-700/50
+              border-gray-200 dark:border-gray-600
+              has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50 dark:has-[:checked]:bg-primary-900/20">
+              <input
+                type="radio"
+                name="research_mode"
+                value="standard"
+                checked={(settings.research_mode ?? 'standard') === 'standard'}
+                onChange={() => autoSave('research_mode', 'standard')}
+                className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">Standard Research</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Uses Brave/Perplexity search + built-in page fetching. Fast and cost-effective for daily briefings.
+                </p>
+              </div>
+            </label>
+            
+            {/* Deep Research Mode (Firecrawl) */}
+            <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+              hover:bg-gray-100 dark:hover:bg-gray-700/50
+              border-gray-200 dark:border-gray-600
+              has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50 dark:has-[:checked]:bg-orange-900/20">
+              <input
+                type="radio"
+                name="research_mode"
+                value="firecrawl"
+                checked={(settings.research_mode ?? 'standard') === 'firecrawl'}
+                onChange={() => autoSave('research_mode', 'firecrawl')}
+                className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">Deep Research</span>
+                  <Flame className="w-4 h-4 text-orange-500" />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Uses Firecrawl for comprehensive web extraction. Better for complex topics requiring multi-page analysis.
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <Info className="w-3 h-3" />
+                  Requires Firecrawl MCP server to be configured (uses Firecrawl credits)
+                </p>
+              </div>
+            </label>
+          </div>
+          
+          {(settings.research_mode ?? 'standard') === 'firecrawl' && !hasFirecrawlConfigured && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800"
+            >
+              <p className="text-xs text-orange-700 dark:text-orange-300">
+                <strong>Setup required:</strong> Add Firecrawl to your MCP servers in the MCP Servers tab. 
+                Get your API key from <a href="https://firecrawl.dev/app/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-900 dark:hover:text-orange-200">firecrawl.dev</a>
+              </p>
+            </motion.div>
+          )}
+          {(settings.research_mode ?? 'standard') === 'firecrawl' && hasFirecrawlConfigured && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800"
+            >
+              <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Firecrawl MCP server is configured and ready
+              </p>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Web Search Section - Only show if not in Firecrawl mode */}
+        {(settings.research_mode ?? 'standard') !== 'firecrawl' && (
         <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-3">
             <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -1699,6 +1818,7 @@ function ResearchSettingsTab() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Condensed Briefing Section */}
         <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">

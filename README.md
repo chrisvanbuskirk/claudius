@@ -27,6 +27,15 @@ A native desktop application and CLI that generates personalized daily research 
 
 ## Overview
 
+Claudius is a **DIY research tool for power users** who want to harness frontier AI models for automated intelligence gathering. Built for developers, researchers, and AI enthusiasts who have their own API keys and want full control over their research pipeline.
+
+**What makes Claudius different:**
+- **Bring your own keys** - Works with Anthropic, OpenAI, Brave, Firecrawl, and other APIs you already have
+- **Two research modes** - Standard mode for quick daily updates, Deep Research mode for comprehensive multi-source analysis
+- **Fully local** - All data stays on your machine in SQLite; no cloud accounts or subscriptions
+- **Extensible via MCP** - Add any MCP-compatible server to expand research capabilities
+- **Desktop + CLI** - Use the app for browsing, CLI for automation and scripting
+
 Claudius is a self-hosted, privacy-first research assistant available as both a **desktop app** and **command-line interface**. It:
 - Runs overnight and generates briefings by morning (or on-demand via CLI)
 - Uses Claude's agentic research capabilities to gather information on your topics
@@ -38,9 +47,14 @@ Claudius is a self-hosted, privacy-first research assistant available as both a 
 ## Features
 
 - **Agentic Research**: Claude uses tools to actively research your topics (GitHub, web fetching, and more)
-- **MCP Server Support**: Extend research capabilities with any MCP-compatible server (Brave Search, etc.)
+- **Two Research Modes**: Standard mode (Brave/Perplexity search) or Deep Research mode (Firecrawl for comprehensive extraction)
+- **MCP Server Support**: Extend research capabilities with any MCP-compatible server (Brave Search, Firecrawl, etc.)
+- **AI-Generated Images**: Optional DALL-E integration generates unique header images for each briefing card
+- **Condensed Briefings**: Option to combine all topics into a single comprehensive daily briefing
+- **Smart Deduplication**: Automatically avoids repeating recent topics unless there's significant new information
 - **Daily Briefings**: Wake up to curated research cards with summaries and sources
 - **Per-Card Chat**: Chat with Claude about any briefing card for deeper exploration
+- **Print Support**: Print individual briefing cards with optimized formatting
 - **Bookmarks**: Save important cards for later reference (bookmarked cards are never auto-deleted)
 - **Storage Management**: Auto-delete old briefings after a configurable retention period, or manually delete individual cards
 - **Privacy First**: All data stays on your machine - no cloud storage required
@@ -90,6 +104,9 @@ Claudius implements Claude's **agentic tool-use pattern** in native Rust. This i
 | `fetch_webpage` | Built-in | Fetches and parses web page content |
 | `brave_search` | MCP Server | Real-time web search (recommended) |
 | `perplexity` | MCP Server | AI-powered search validation |
+| `firecrawl_search` | MCP Server | Search with content extraction (Deep Research mode) |
+| `firecrawl_scrape` | MCP Server | Full page extraction, handles JS (Deep Research mode) |
+| `firecrawl_extract` | MCP Server | Structured data extraction with LLM (Deep Research mode) |
 | `github_search` | MCP Server | Search GitHub repos, issues, PRs |
 | `github_get_repo` | MCP Server | Get repository details |
 | `web_search` | Claude API | Claude's native web search ($0.01/search) |
@@ -153,14 +170,15 @@ claudius/
 
 All Claudius data is stored locally in `~/.claudius/`:
 
-| File | Contents |
-|------|----------|
-| `.env` | Your Anthropic API key (stored as `ANTHROPIC_API_KEY=sk-ant-...`) |
+| File/Directory | Contents |
+|----------------|----------|
+| `.env` | Your Anthropic and OpenAI API keys |
 | `mcp-servers.json` | MCP server configurations and API keys |
-| `preferences.json` | App settings (schedule, model preferences, etc.) |
+| `preferences.json` | App settings (schedule, model preferences, research mode, etc.) |
 | `claudius.db` | SQLite database with briefings, topics, bookmarks, chat messages, and research logs |
+| `images/` | DALL-E generated header images for briefing cards (if enabled) |
 
-**Note:** The `.env` file contains your API key in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
+**Note:** The `.env` file contains your API keys in plaintext with restricted file permissions (owner read/write only on Unix systems). Keep this file secure and do not share it.
 
 ## Prerequisites
 
@@ -233,6 +251,108 @@ Claude also offers a **built-in web search tool** that doesn't require any MCP s
 - For heavy usage, consider using Brave Search MCP (free tier: 2,000 queries/month)
 
 You can use Claude Web Search alongside MCP servers - Claude will intelligently choose the best tool for each query.
+
+## Research Modes
+
+Claudius supports two research modes, configurable in Settings:
+
+### Standard Mode (Default)
+
+Uses Brave Search and/or Perplexity for real-time web search, combined with built-in page fetching. This is fast and cost-effective for daily briefings.
+
+**Tool Priority:**
+1. `brave_search` or `perplexity_search` - Primary real-time web search
+2. `fetch_webpage` - Reads promising URLs discovered by search
+3. `get_github_activity` - For open source project activity
+4. Claude's built-in `web_search` (if enabled, $0.01/search)
+
+**Best for:** Daily news, quick updates, monitoring topics
+
+### Deep Research Mode (Firecrawl)
+
+Uses [Firecrawl](https://www.firecrawl.dev/) MCP for comprehensive web extraction. Firecrawl can crawl entire sites, extract structured data, and handle JavaScript-heavy pages that simple fetching would miss.
+
+**Tool Priority:**
+1. `firecrawl_search` - Search with built-in content extraction
+2. `firecrawl_extract` - Deep structured extraction with LLM prompts
+3. `firecrawl_scrape` - Full page content extraction (handles JS-heavy sites)
+4. `firecrawl_map` - Discover related URLs on a site
+5. `get_github_activity` - Still available for GitHub activity
+
+**Best for:** In-depth research, complex topics, sites with dynamic content
+
+### Setting Up Firecrawl
+
+1. **Get API Key**: Sign up at [firecrawl.dev](https://www.firecrawl.dev/) (free tier available)
+
+2. **Configure MCP Server**: Add to your `~/.claudius/mcp-servers.json`:
+```json
+{
+  "firecrawl": {
+    "command": "npx",
+    "args": ["-y", "firecrawl-mcp"],
+    "env": {
+      "FIRECRAWL_API_KEY": "your-api-key-here"
+    },
+    "enabled": true
+  }
+}
+```
+
+3. **Select Mode**: In Settings → Research, select "Deep Research (Firecrawl)"
+
+**Note:** When Deep Research mode is selected, Standard mode tools (Brave, Perplexity, fetch_webpage) are automatically excluded to prevent tool confusion.
+
+## AI-Generated Images (DALL-E)
+
+Claudius can generate unique header images for each briefing card using OpenAI's DALL-E 3 API.
+
+### Setup
+
+1. **Get OpenAI API Key**: Sign up at [platform.openai.com](https://platform.openai.com/)
+2. **Add Key in Settings**: Settings → API Keys → OpenAI API Key
+3. **Enable Image Generation**: Settings → Research → Enable Image Generation
+
+### How It Works
+
+- During synthesis, Claude generates a short visual description for each card (e.g., "futuristic circuit board with glowing pathways")
+- After research completes, DALL-E generates a 1792x1024 landscape image for each card
+- Images are stored locally in `~/.claudius/images/`
+- Images display as headers on briefing cards
+
+### Cost
+
+- DALL-E 3 costs approximately $0.04-0.08 per image
+- A typical research session with 5-7 cards costs ~$0.30-0.50 for images
+- Disable in Settings if you prefer text-only briefings
+
+## Condensed Briefings
+
+By default, Claudius generates one briefing card per topic. Enable **Condensed Briefings** to combine all topics into a single comprehensive daily briefing.
+
+### Standard Mode (Multiple Cards)
+- One card per topic (e.g., 5 topics = 5 cards)
+- Each card focuses on a specific topic area
+- Quick scanning of individual topics
+
+### Condensed Mode (Single Card)
+- All topics combined into one comprehensive briefing
+- Cross-topic analysis and connections highlighted
+- Longer, more narrative format (400+ words)
+- Better for reading as a "daily digest"
+
+**Enable in:** Settings → Research → Condensed Briefings
+
+## Smart Deduplication
+
+Claudius automatically tracks recent briefings and avoids repeating the same information:
+
+- Compares new research against the last 3 days of briefings
+- Uses similarity scoring to detect duplicate topics
+- Only generates new cards when there's significant new information
+- Configurable threshold in Settings (default: 70% similarity = duplicate)
+
+This prevents your briefings from becoming repetitive when topics don't have daily updates.
 
 ## Installation
 
@@ -590,12 +710,13 @@ MCP servers are configured via the Settings page in the desktop app. A sample co
 
 **Recommended MCP servers:**
 
-| Server | Package | API Key Required |
-|--------|---------|------------------|
-| [Brave Search](https://brave.com/search/api/) | `@modelcontextprotocol/server-brave-search` | Yes - `BRAVE_API_KEY` |
-| [Perplexity](https://docs.perplexity.ai/guides/mcp-server) | `@perplexity-ai/mcp-server` | Yes - `PERPLEXITY_API_KEY` |
-| [GitHub](https://github.com/modelcontextprotocol/servers) | `@modelcontextprotocol/server-github` | Yes - `GITHUB_PERSONAL_ACCESS_TOKEN` |
-| [Fetch](https://www.npmjs.com/package/@modelcontextprotocol/server-fetch) | `@modelcontextprotocol/server-fetch` | No |
+| Server | Package | API Key Required | Mode |
+|--------|---------|------------------|------|
+| [Brave Search](https://brave.com/search/api/) | `@brave/brave-search-mcp-server` | Yes - `BRAVE_API_KEY` | Standard |
+| [Perplexity](https://docs.perplexity.ai/guides/mcp-server) | `@anthropic-ai/perplexity-search` | Yes - `PERPLEXITY_API_KEY` | Standard |
+| [Firecrawl](https://www.firecrawl.dev/) | `firecrawl-mcp` | Yes - `FIRECRAWL_API_KEY` | Deep Research |
+| [GitHub](https://github.com/modelcontextprotocol/servers) | `@modelcontextprotocol/server-github` | Yes - `GITHUB_PERSONAL_ACCESS_TOKEN` | Both |
+| [Fetch](https://www.npmjs.com/package/@modelcontextprotocol/server-fetch) | `@modelcontextprotocol/server-fetch` | No | Standard |
 
 **To add an MCP server:**
 1. Open Claudius Settings → MCP Servers

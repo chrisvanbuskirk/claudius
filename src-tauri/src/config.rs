@@ -41,6 +41,8 @@ pub struct ResearchSettings {
     pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
     #[serde(default)]
     pub enable_image_generation: bool,  // Generate header images using DALL-E
+    #[serde(default = "default_research_mode")]
+    pub research_mode: String,  // "standard" | "firecrawl" - determines which tools are used
 }
 
 fn default_notification_sound() -> bool {
@@ -53,6 +55,10 @@ fn default_dedup_days() -> i32 {
 
 fn default_dedup_threshold() -> f64 {
     0.75
+}
+
+fn default_research_mode() -> String {
+    "standard".to_string()
 }
 
 impl Default for ResearchSettings {
@@ -69,6 +75,7 @@ impl Default for ResearchSettings {
             dedup_days: default_dedup_days(),
             dedup_threshold: default_dedup_threshold(),
             enable_image_generation: true,
+            research_mode: default_research_mode(),
         }
     }
 }

@@ -109,6 +109,20 @@ export interface WebSearchEvent extends ResearchEvent {
   status: 'started' | 'completed';
 }
 
+// Event: Firecrawl deep extraction (Deep Research mode)
+export interface DeepExtractionEvent extends ResearchEvent {
+  topic_name: string;
+  tool_name: string;  // e.g., "firecrawl_extract", "firecrawl_scrape", "firecrawl_search"
+  target_url?: string;
+  status: 'started' | 'completed';
+}
+
+// Event: Research mode error (e.g., Firecrawl mode without Firecrawl configured)
+export interface ResearchModeErrorEvent extends ResearchEvent {
+  mode: string;
+  error: string;
+}
+
 // Union type for all events
 export type ResearchProgressEvent =
   | { type: 'research:started'; data: ResearchStartedEvent }
@@ -126,4 +140,6 @@ export type ResearchProgressEvent =
   | { type: 'research:cancelled'; data: CancelledEvent }
   | { type: 'research:reset'; data: ResetEvent }
   | { type: 'research:heartbeat'; data: HeartbeatEvent }
-  | { type: 'research:web_search'; data: WebSearchEvent };
+  | { type: 'research:web_search'; data: WebSearchEvent }
+  | { type: 'research:deep_extraction'; data: DeepExtractionEvent }
+  | { type: 'research:mode_error'; data: ResearchModeErrorEvent };

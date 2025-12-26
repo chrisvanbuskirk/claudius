@@ -14,6 +14,8 @@ import type {
   ResetEvent,
   HeartbeatEvent,
   WebSearchEvent,
+  DeepExtractionEvent,
+  ResearchModeErrorEvent,
 } from '../types/research-events';
 
 // Phase-specific timeouts (in milliseconds)
@@ -361,6 +363,46 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
           console.log(`✅ Web search completed for "${topic_name}"`);
         }
         updateLastEventTime();
+      })
+    );
+
+    // Deep extraction - Firecrawl deep research mode
+    unlistenPromises.push(
+      listen<DeepExtractionEvent>('research:deep_extraction', (event) => {
+        if (!mounted) return;
+        const { topic_name, tool_name, target_url, status } = event.payload;
+        if (status === 'started') {
+          console.log(`🔬 Deep extraction started for "${topic_name}" using ${tool_name}${target_url ? ` on ${target_url}` : ''}`);
+        } else {
+          console.log(`✅ Deep extraction completed for "${topic_name}" using ${tool_name}`);
+        }
+        updateLastEventTime();
+        
+        // Update phase to show deep extraction is happening
+        if (status === 'started') {
+          setProgress((prev) => ({
+            ...prev,
+            currentPhase: 'deep_extraction',
+          }));
+        }
+      })
+    );
+
+    // Research mode error - e.g., Firecrawl mode without Firecrawl configured
+    unlistenPromises.push(
+      listen<ResearchModeErrorEvent>('research:mode_error', (event) => {
+        if (!mounted) return;
+        console.error(`Research mode error (${event.payload.mode}): ${event.payload.error}`);
+        
+        // Clear all timeouts since research failed
+        clearAllTimeouts();
+        
+        setProgress((prev) => ({
+          ...prev,
+          isRunning: false,
+          currentPhase: 'complete',
+          error: event.payload.error,
+        }));
       })
     );
 

@@ -48,6 +48,7 @@ claudius/
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide icons
 - **Desktop**: Tauri 2.0 (Rust)
 - **Research Agent**: Rust (built-in), calls Anthropic API via reqwest
+- **Image Generation**: OpenAI DALL-E 3 API (optional)
 - **Database**: SQLite via sql.js (browser) and rusqlite (Rust)
 - **Testing**: Vitest, React Testing Library, Cargo Test
 
@@ -107,26 +108,54 @@ These variables are interpolated into the system prompt to:
 
 **Why This Matters**: Claude needs explicit date context because its training data has a cutoff. Without stating "Today is December 9, 2025", Claude may return outdated information or not realize it should be searching for December 2025 content.
 
-### MCP Tool Priority
+### Research Modes
 
-The research agent prioritizes tools in this order:
+Claudius supports two research modes, configurable in Settings:
 
-1. **Search Tools** (if available):
-   - `brave_search`: Primary real-time web search
-   - `perplexity`: AI-powered search for validation
-   - Queries formatted as: `"[topic] {month_year}"` or `"[topic] {current_year} latest news"`
+#### Standard Mode (Default)
+Uses Brave/Perplexity search + built-in page fetching. Fast and cost-effective for daily briefings.
 
-2. **Content Fetching**:
-   - `fetch_webpage`: Reads promising URLs discovered by search
-   - Can also be used directly with URLs likely to have current content
+**Tool Priority:**
+1. `brave_search` or `perplexity_search`: Primary real-time web search
+2. `fetch_webpage`: Reads promising URLs discovered by search
+3. `get_github_activity`: For open source project activity
+4. Claude's built-in `web_search` (if enabled, $0.01/search)
 
-3. **GitHub Activity** (for open source topics):
-   - `github_search`, `github_get_repo`, `github_list_commits`, etc.
-   - Gets recent activity from {month_year}
+#### Deep Research Mode (Firecrawl)
+Uses Firecrawl MCP for comprehensive web extraction. Better for complex topics requiring multi-page analysis.
 
-4. **Graceful Degradation**:
-   - If MCP servers fail to initialize, research continues with built-in tools
-   - Claude explicitly states when current information is unavailable
+**Tool Priority:**
+1. `firecrawl_search`: Search with built-in content extraction
+2. `firecrawl_extract`: Deep structured extraction with LLM prompts
+3. `firecrawl_scrape`: Full page content extraction (handles JS-heavy sites)
+4. `firecrawl_map`: Discover related URLs on a site
+5. `get_github_activity`: Still available for GitHub activity
+
+**Tool Filtering ("Firewall"):**
+- Standard mode: Excludes all Firecrawl tools, even if MCP server is configured
+- Firecrawl mode: Excludes Brave/Perplexity and built-in `fetch_webpage`
+- This prevents tool confusion and ensures consistent research strategy
+
+**Validation:**
+- If Firecrawl mode is selected but Firecrawl MCP isn't configured, research fails with a clear error message
+- Users are prompted to either configure Firecrawl or switch to Standard mode
+
+### Graceful Degradation
+
+- If MCP servers fail to initialize, research continues with built-in tools
+- Claude explicitly states when current information is unavailable
+
+### MCP Client Robustness
+
+The `mcp_client.rs` module includes several reliability features:
+
+**Notification Handling**: MCP servers (especially Firecrawl) send notification messages (progress updates) before responses. The `read_response` function now loops and skips notifications (messages with "method" but no "id") to avoid desync issues.
+
+**Auto-Restart on Crash**: If an MCP server crashes mid-research (detected by "Broken pipe" errors), the client:
+1. Stores original config in `McpConnection` struct
+2. Detects pipe errors in `call_tool`
+3. Automatically restarts the crashed server
+4. Retries the failed tool call once
 
 ### System Prompt Architecture
 
@@ -183,6 +212,52 @@ research:completed        → Full research session done
 ```
 
 **Synthesis Phase** (lines 1078-1113): After completing all topic research, the agent calls Claude again to synthesize all research content into cohesive briefing cards. This phase typically takes 60-90 seconds and now has dedicated progress events so users know synthesis is happening.
+
+### Condensed Briefings
+
+The `condense_briefings` setting (in `ResearchSettings`) changes how synthesis works:
+
+- **Standard mode** (`condense_briefings: false`): One card per topic, each focused on a specific area
+- **Condensed mode** (`condense_briefings: true`): All topics combined into a single comprehensive briefing card with cross-topic analysis
+
+The synthesis prompt in `research.rs` (lines 1325-1425) has two code paths based on this setting.
+
+### Smart Deduplication
+
+The `dedup.rs` module prevents repetitive briefings:
+
+1. Before synthesis, loads cards from the last 3 days
+2. Computes similarity scores between new research and existing cards
+3. Passes deduplication context to Claude in the synthesis prompt
+4. Claude skips topics that were recently covered unless there's significant new information
+
+Configuration:
+- `dedup_threshold` (default: 0.7) - Similarity score above this is considered a duplicate
+- `dedup_lookback_days` (default: 3) - How many days of history to check
+
+### Image Generation (DALL-E)
+
+After synthesis completes, if image generation is enabled:
+
+1. Each `BriefingCard` includes an `image_prompt` field (generated by Claude during synthesis)
+2. The `image_gen.rs` module calls OpenAI's DALL-E 3 API
+3. Images are saved to `~/.claudius/images/{briefing_id}_{card_index}.png`
+4. The `image_path` field is updated on each card
+
+Configuration:
+- `enable_image_generation` in settings
+- `OPENAI_API_KEY` in `~/.claudius/.env`
+
+Cost: ~$0.04-0.08 per image (DALL-E 3, 1792x1024)
+
+### Markdown Formatting in detailed_content
+
+The synthesis prompt requests markdown formatting in the `detailed_content` field:
+- **Bold section headers** (e.g., `**Key Findings**`, `**Implications**`)
+- Bullet points for multiple items
+- Structured paragraphs with clear sections
+
+This makes expanded card content more readable and scannable.
 
 - **Build**: npm workspaces monorepo
 
@@ -335,21 +410,29 @@ npm run build
 | `src-tauri/tauri.conf.json` | Tauri app configuration, permissions |
 | `src-tauri/src/main.rs` | Rust entry point, command registration |
 | `src-tauri/src/commands.rs` | IPC commands called from frontend |
-| `src-tauri/src/research.rs` | Research agent (Anthropic API client) |
-| `src-tauri/src/scheduler.rs` | Cron-based research scheduler |
+| `src-tauri/src/research.rs` | Research agent (Anthropic API client, synthesis prompts) |
+| `src-tauri/src/dedup.rs` | Smart deduplication for briefings |
+| `src-tauri/src/image_gen.rs` | DALL-E image generation |
+| `src-tauri/src/config.rs` | Settings management (research_mode, condense_briefings, etc.) |
+| `src-tauri/src/mcp_client.rs` | MCP server client with auto-restart on crash |
 | `packages/frontend/src/App.tsx` | React router, main layout |
 | `packages/frontend/src/hooks/useTauri.ts` | Tauri IPC bridge with mock data fallback |
+| `packages/frontend/src/contexts/ResearchContext.tsx` | Research progress state and events |
+| `packages/frontend/src/pages/SettingsPage.tsx` | Settings UI including Research Mode toggle |
 | `packages/shared/src/db/` | Database operations (briefings, feedback) |
 | `packages/shared/src/db/schema.ts` | SQLite schema definition |
 
 ## Environment Variables
 
-Required in `.env` (copy from `.env.example`):
+Required in `~/.claudius/.env`:
 - `ANTHROPIC_API_KEY` - Required for Claude API access
 
 Optional:
+- `OPENAI_API_KEY` - For DALL-E image generation
 - `GITHUB_TOKEN` - For GitHub MCP server
-- `FIRECRAWL_API_KEY` - For web scraping capabilities
+- `FIRECRAWL_API_KEY` - For Firecrawl MCP (Deep Research mode)
+- `BRAVE_API_KEY` - For Brave Search MCP
+- `PERPLEXITY_API_KEY` - For Perplexity MCP
 
 ## Database Schema
 
