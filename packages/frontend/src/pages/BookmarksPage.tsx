@@ -5,29 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { BriefingCard } from '../components/BriefingCard';
 import { ChatPanel } from '../components/ChatPanel';
 import { useBookmarks } from '../hooks/useTauri';
-import type { Briefing, CardWithChat } from '../types';
-
-// Backend returns briefings with cards as JSON string
-interface BackendBriefing {
-  id: number;
-  date: string;
-  title: string;
-  cards: string; // JSON string of cards array
-  research_time_ms?: number;
-  model_used?: string;
-  total_tokens?: number;
-}
-
-// Card data within the cards JSON
-interface BriefingCardData {
-  title: string;
-  summary: string;
-  detailed_content?: string;
-  sources?: string[];
-  suggested_next?: string;
-  relevance?: string;
-  topic?: string;
-}
+import type { Briefing, CardWithChat, BackendBriefing, BriefingCardData } from '../types';
 
 export function BookmarksPage() {
   const { bookmarks, loading: bookmarksLoading, toggleBookmark, getBookmarks } = useBookmarks();
@@ -118,6 +96,8 @@ export function BookmarksPage() {
           created_at: briefing.date,
           topic_id: '',
           topic_name: card.topic || 'General',
+          image_prompt: card.image_prompt,
+          image_path: card.image_path,
         });
       } catch (err) {
         console.error(`Failed to parse cards for briefing ${briefing.id}:`, err);

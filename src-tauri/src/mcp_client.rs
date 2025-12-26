@@ -42,6 +42,8 @@ pub struct McpConnection {
     pub server_id: String,
     child: Child,
     tools: Vec<McpTool>,
+    /// Original config for restarting the server if it crashes
+    config: McpServerConfig,
 }
 
 impl McpConnection {
@@ -80,7 +82,11 @@ impl McpClient {
                     // Register all tools from this server
                     for tool in &conn.tools {
                         // Prefix tool name with server name to avoid conflicts
-                        let prefixed_name = format!("{}_{}", conn.server_name.replace(' ', "_").to_lowercase(), tool.name);
+                        let prefixed_name = format!(
+                            "{}_{}",
+                            conn.server_name.replace(' ', "_").to_lowercase(),
+                            tool.name
+                        );
                         tool_routes.insert(prefixed_name, server_idx);
                         // Also register without prefix for direct calls
                         tool_routes.insert(tool.name.clone(), server_idx);
@@ -105,20 +111,55 @@ impl McpClient {
         })
     }
 
-    /// Connect to a single MCP server.
+    /// Connect to a single MCP server with timeout.
+    /// Uses a separate thread with real timeout since the connection involves blocking I/O.
     async fn connect_to_server(server: &McpServerConfig) -> Result<McpConnection, String> {
+        let server_clone = server.clone();
+        let server_name = server.name.clone();
+
+        // Use oneshot channel to get result from thread
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        // Spawn connection in a separate thread since it uses blocking I/O
+        std::thread::spawn(move || {
+            let result = Self::connect_to_server_blocking(&server_clone);
+            let _ = tx.send(result);
+        });
+
+        // Wait with timeout
+        match tokio::time::timeout(Duration::from_secs(30), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(format!(
+                "MCP server '{}' connection channel closed",
+                server_name
+            )),
+            Err(_) => Err(format!(
+                "MCP server '{}' connection timed out after 30 seconds",
+                server_name
+            )),
+        }
+    }
+
+    /// Blocking connection logic - runs in a separate thread.
+    fn connect_to_server_blocking(server: &McpServerConfig) -> Result<McpConnection, String> {
         // Extract command and args from config
-        let command = server.config.get("command")
+        let command = server
+            .config
+            .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| format!("MCP server '{}' missing 'command' in config", server.name))?;
 
-        let args: Vec<&str> = server.config.get("args")
+        let args: Vec<&str> = server
+            .config
+            .get("args")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
         // Get environment variables
-        let env: HashMap<String, String> = server.config.get("env")
+        let env: HashMap<String, String> = server
+            .config
+            .get("env")
             .and_then(|v| v.as_object())
             .map(|obj| {
                 obj.iter()
@@ -127,7 +168,17 @@ impl McpClient {
             })
             .unwrap_or_default();
 
-        info!("Starting MCP server '{}': {} {:?}", server.name, command, args);
+        info!(
+            "Starting MCP server '{}': {} {:?}",
+            server.name, command, args
+        );
+        if !env.is_empty() {
+            info!(
+                "MCP server '{}' env vars: {:?}",
+                server.name,
+                env.keys().collect::<Vec<_>>()
+            );
+        }
 
         // Spawn the server process
         let mut cmd = Command::new(command);
@@ -136,9 +187,14 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Add environment variables
+        // Add environment variables from config
         for (key, value) in &env {
             cmd.env(key, value);
+        }
+
+        // Ensure PATH is inherited for npx/node to work
+        if let Ok(path) = std::env::var("PATH") {
+            cmd.env("PATH", path);
         }
 
         let mut child = cmd
@@ -146,9 +202,13 @@ impl McpClient {
             .map_err(|e| format!("Failed to spawn MCP server '{}': {}", server.name, e))?;
 
         // Initialize the connection
-        let stdin = child.stdin.as_mut()
+        let stdin = child
+            .stdin
+            .as_mut()
             .ok_or_else(|| "Failed to get stdin".to_string())?;
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| "Failed to get stdout".to_string())?;
 
         // Send initialize request
@@ -200,7 +260,8 @@ impl McpClient {
             .and_then(|t| serde_json::from_value(t.clone()).ok())
             .unwrap_or_default();
 
-        debug!("MCP server '{}' provides tools: {:?}",
+        debug!(
+            "MCP server '{}' provides tools: {:?}",
             server.name,
             tools.iter().map(|t| &t.name).collect::<Vec<_>>()
         );
@@ -213,6 +274,7 @@ impl McpClient {
             server_id: server.id.clone(),
             child,
             tools,
+            config: server.clone(),
         })
     }
 
@@ -226,22 +288,47 @@ impl McpClient {
         writeln!(stdin, "{}", request_str)
             .map_err(|e| format!("Failed to write to MCP server: {}", e))?;
 
-        stdin.flush()
+        stdin
+            .flush()
             .map_err(|e| format!("Failed to flush to MCP server: {}", e))?;
 
         Ok(())
     }
 
     /// Read a JSON-RPC response from the server.
+    /// This function skips over notifications (messages without an "id" field)
+    /// and keeps reading until it gets an actual response.
     fn read_response(reader: &mut BufReader<impl std::io::Read>) -> Result<Value, String> {
-        let mut line = String::new();
-        reader.read_line(&mut line)
-            .map_err(|e| format!("Failed to read from MCP server: {}", e))?;
+        loop {
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("Failed to read from MCP server: {}", e))?;
 
-        debug!("MCP response: {}", line.trim());
+            if line.trim().is_empty() {
+                continue;
+            }
 
-        serde_json::from_str(&line)
-            .map_err(|e| format!("Failed to parse MCP response: {}", e))
+            debug!("MCP message: {}", line.trim());
+
+            let value: Value = serde_json::from_str(&line)
+                .map_err(|e| format!("Failed to parse MCP response: {}", e))?;
+
+            // Skip notifications (they have a "method" field but no "id" field)
+            // These are progress updates, logs, etc. that we don't need to process
+            if value.get("method").is_some() && value.get("id").is_none() {
+                debug!(
+                    "Skipping MCP notification: {}",
+                    value
+                        .get("method")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("unknown")
+                );
+                continue;
+            }
+
+            return Ok(value);
+        }
     }
 
     /// Get all available tools from all connected servers.
@@ -269,20 +356,46 @@ impl McpClient {
 
     /// Call a tool on the appropriate MCP server.
     pub fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<Value, String> {
+        self.call_tool_with_retry(tool_name, arguments, true)
+    }
+
+    /// Internal implementation of call_tool with optional retry on broken pipe.
+    fn call_tool_with_retry(
+        &mut self,
+        tool_name: &str,
+        arguments: Value,
+        allow_retry: bool,
+    ) -> Result<Value, String> {
         // Find which server has this tool
-        let server_idx = self.tool_routes.get(tool_name)
+        let server_idx = *self
+            .tool_routes
+            .get(tool_name)
             .ok_or_else(|| format!("Unknown tool: {}", tool_name))?;
 
-        let conn = self.connections.get_mut(*server_idx)
+        let conn = self
+            .connections
+            .get_mut(server_idx)
             .ok_or_else(|| "Server connection not found".to_string())?;
 
         // Find the actual tool name (might be prefixed)
-        let actual_tool_name = conn.tools.iter()
-            .find(|t| t.name == tool_name || format!("{}_{}", conn.server_name.replace(' ', "_").to_lowercase(), t.name) == tool_name)
+        let actual_tool_name = conn
+            .tools
+            .iter()
+            .find(|t| {
+                t.name == tool_name
+                    || format!(
+                        "{}_{}",
+                        conn.server_name.replace(' ', "_").to_lowercase(),
+                        t.name
+                    ) == tool_name
+            })
             .map(|t| t.name.clone())
             .ok_or_else(|| format!("Tool '{}' not found on server", tool_name))?;
 
-        info!("Calling MCP tool '{}' on server '{}'", actual_tool_name, conn.server_name);
+        info!(
+            "Calling MCP tool '{}' on server '{}'",
+            actual_tool_name, conn.server_name
+        );
 
         // Send tools/call request
         let request = json!({
@@ -297,11 +410,69 @@ impl McpClient {
 
         let call_start = std::time::Instant::now();
 
-        let stdin = conn.child.stdin.as_mut()
-            .ok_or_else(|| "Server stdin not available".to_string())?;
-        Self::send_request(stdin, &request)?;
+        // Try to send request - detect broken pipe
+        let send_result = {
+            let stdin = conn
+                .child
+                .stdin
+                .as_mut()
+                .ok_or_else(|| "Server stdin not available".to_string())?;
+            Self::send_request(stdin, &request)
+        };
 
-        let stdout = conn.child.stdout.take()
+        // If we got a broken pipe error, try to restart the server and retry
+        if let Err(ref e) = send_result {
+            if e.contains("Broken pipe") || e.contains("os error 32") {
+                if allow_retry {
+                    warn!(
+                        "MCP server '{}' has crashed (broken pipe), attempting restart...",
+                        conn.server_name
+                    );
+
+                    // Get the config before dropping the connection
+                    let config = conn.config.clone();
+                    let server_name = conn.server_name.clone();
+
+                    // Try to restart the server
+                    // Use tokio's block_in_place to run async code from sync context
+                    let restart_result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(Self::connect_to_server(&config))
+                    });
+                    match restart_result {
+                        Ok(new_conn) => {
+                            info!("Successfully restarted MCP server '{}'", server_name);
+                            // Replace the old connection
+                            self.connections[server_idx] = new_conn;
+                            // Retry the tool call (without allowing another retry)
+                            return self.call_tool_with_retry(tool_name, arguments, false);
+                        }
+                        Err(restart_err) => {
+                            warn!(
+                                "Failed to restart MCP server '{}': {}",
+                                server_name, restart_err
+                            );
+                            return Err(format!(
+                                "MCP server crashed and failed to restart: {}",
+                                restart_err
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(format!("MCP server crashed after restart attempt: {}", e));
+                }
+            }
+        }
+        send_result?;
+
+        let conn = self
+            .connections
+            .get_mut(server_idx)
+            .ok_or_else(|| "Server connection not found after send".to_string())?;
+
+        let stdout = conn
+            .child
+            .stdout
+            .take()
             .ok_or_else(|| "Server stdout not available".to_string())?;
         let mut reader = BufReader::new(stdout);
 
@@ -312,31 +483,34 @@ impl McpClient {
         if call_duration > Duration::from_secs(30) {
             warn!(
                 "MCP tool '{}' on server '{}' took {:.1}s (slow)",
-                actual_tool_name, conn.server_name, call_duration.as_secs_f64()
+                actual_tool_name,
+                conn.server_name,
+                call_duration.as_secs_f64()
             );
         } else {
             debug!(
                 "MCP tool '{}' completed in {:.1}s",
-                actual_tool_name, call_duration.as_secs_f64()
+                actual_tool_name,
+                call_duration.as_secs_f64()
             );
         }
 
         // Check for error
         if let Some(error) = response.get("error") {
-            let error_msg = error.get("message")
+            let error_msg = error
+                .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or("Unknown MCP error");
             return Err(format!("MCP tool error: {}", error_msg));
         }
 
         // Extract result content
-        let result = response.get("result")
-            .cloned()
-            .unwrap_or(json!(null));
+        let result = response.get("result").cloned().unwrap_or(json!(null));
 
         // If result has content array, extract text
         if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-            let text_parts: Vec<&str> = content.iter()
+            let text_parts: Vec<&str> = content
+                .iter()
                 .filter_map(|c| {
                     if c.get("type").and_then(|t| t.as_str()) == Some("text") {
                         c.get("text").and_then(|t| t.as_str())
@@ -390,8 +564,7 @@ impl McpToolWithServer {
 
 /// Read MCP server configurations from the config file.
 pub fn load_mcp_servers() -> Result<Vec<McpServerConfig>, String> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Could not find home directory".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| "Could not find home directory".to_string())?;
 
     let config_path = home.join(".claudius").join("mcp-servers.json");
 
@@ -448,5 +621,68 @@ mod tests {
         // In CI the file won't exist
         let result = load_mcp_servers();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mcp_server_config_serialization() {
+        let config = McpServerConfig {
+            id: "test-123".to_string(),
+            name: "Test Server".to_string(),
+            enabled: true,
+            config: json!({
+                "command": "npx",
+                "args": ["-y", "test-server"],
+                "env": { "API_KEY": "secret" }
+            }),
+            last_used: Some("2025-01-15".to_string()),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("test-123"));
+        assert!(json.contains("Test Server"));
+        assert!(json.contains("npx"));
+
+        let parsed: McpServerConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, config.id);
+        assert_eq!(parsed.name, config.name);
+        assert_eq!(parsed.enabled, true);
+    }
+
+    #[test]
+    fn test_mcp_tool_default_description() {
+        let tool = McpToolWithServer {
+            server_name: "TestServer".to_string(),
+            server_id: "id123".to_string(),
+            tool: McpTool {
+                name: "test_tool".to_string(),
+                description: None, // No description provided
+                input_schema: json!({"type": "object"}),
+            },
+        };
+
+        let anthropic = tool.to_anthropic_tool();
+        // Should use server name in description when none provided
+        let desc = anthropic["description"].as_str().unwrap();
+        assert!(
+            desc.contains("TestServer"),
+            "Should include server name in default description"
+        );
+        assert!(
+            desc.contains("MCP server"),
+            "Should mention MCP server in default description"
+        );
+    }
+
+    #[test]
+    fn test_mcp_client_empty_connections() {
+        // Test that an empty MCP client reports 0 servers and tools
+        let client = McpClient {
+            connections: vec![],
+            tool_routes: std::collections::HashMap::new(),
+        };
+
+        assert_eq!(client.server_count(), 0);
+        assert_eq!(client.tool_count(), 0);
+        assert!(client.get_all_tools().is_empty());
     }
 }

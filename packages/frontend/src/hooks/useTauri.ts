@@ -67,11 +67,14 @@ export function useBriefings() {
     }
   }, []);
 
-  const getTodaysBriefings = useCallback(async () => {
+  const getTodaysBriefings = useCallback(async (source?: string) => {
+    console.log(`[useTauri] getTodaysBriefings called from: ${source || 'unknown'}`);
+    console.trace('[useTauri] getTodaysBriefings stack trace');
     setLoading(true);
     setError(null);
     try {
       const result = await safeInvoke<Briefing[]>('get_todays_briefings');
+      console.log(`[useTauri] getTodaysBriefings returned ${result.length} briefings`);
       setBriefings(result);
       return result;
     } catch (err) {
@@ -444,6 +447,77 @@ export function useApiKey() {
     error,
     checkApiKey,
     setApiKey,
+  };
+}
+
+// OpenAI API Key Hook (for DALL-E image generation)
+export function useOpenAIApiKey() {
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkApiKey = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const masked = await safeInvoke<string | null>('get_openai_api_key');
+      const exists = await safeInvoke<boolean>('has_openai_api_key');
+      setMaskedKey(masked);
+      setHasKey(exists);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to check OpenAI API key';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const setApiKey = useCallback(async (apiKey: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await safeInvoke<void>('set_openai_api_key', { apiKey });
+      await checkApiKey();
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to set OpenAI API key';
+      setError(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [checkApiKey]);
+
+  const clearApiKey = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await safeInvoke<void>('clear_openai_api_key');
+      setMaskedKey(null);
+      setHasKey(false);
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to clear OpenAI API key';
+      setError(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkApiKey();
+  }, [checkApiKey]);
+
+  return {
+    maskedKey,
+    hasKey,
+    loading,
+    error,
+    checkApiKey,
+    setApiKey,
+    clearApiKey,
   };
 }
 

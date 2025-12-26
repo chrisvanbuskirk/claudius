@@ -1,8 +1,8 @@
 use tauri::{
-    tray::TrayIconBuilder,
-    menu::{Menu, MenuItem},
-    Manager, AppHandle,
     image::Image,
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 use tracing::{info, warn};
@@ -13,8 +13,7 @@ fn load_tray_icon() -> Image<'static> {
     // This is embedded at compile time from src-tauri/icons/tray/icon.png
     let tray_icon_bytes = include_bytes!("../icons/tray/icon.png");
 
-    let img = image::load_from_memory(tray_icon_bytes)
-        .expect("Failed to load embedded tray icon");
+    let img = image::load_from_memory(tray_icon_bytes).expect("Failed to load embedded tray icon");
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     info!("Loaded tray icon: {}x{}", width, height);

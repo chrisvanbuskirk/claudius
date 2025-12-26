@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive } from 'lucide-react';
+import { Plus, X, Trash2, CheckCircle2, Loader2, Play, Key, Eye, EyeOff, Edit2, AlertTriangle, Globe, Save, Terminal, Search, Bot, Github, ExternalLink, Sparkles, HardDrive, Layers, Filter, Image, Flame, Zap, Info } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { useTopics, useMCPServers, useSettings, useApiKey } from '../hooks/useTauri';
+import { useTopics, useMCPServers, useSettings, useApiKey, useOpenAIApiKey } from '../hooks/useTauri';
 import { MagneticButton } from '../components/MagneticButton';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -330,7 +330,7 @@ interface QuickSetupServer {
   id: string;
   name: string;
   description: string;
-  icon: 'Search' | 'Bot' | 'Github';
+  icon: 'Search' | 'Bot' | 'Github' | 'Flame';
   pricing: string;
   apiKeyLabel: string;
   apiKeyUrl: string;
@@ -380,6 +380,19 @@ const QUICK_SETUP_SERVERS: QuickSetupServer[] = [
     args: ['-y', '@modelcontextprotocol/server-github'],
     recommended: false,
   },
+  {
+    id: 'firecrawl',
+    name: 'Firecrawl',
+    description: 'Deep web scraping and extraction for comprehensive research',
+    icon: 'Flame',
+    pricing: 'Pay-as-you-go',
+    apiKeyLabel: 'API Key',
+    apiKeyUrl: 'https://firecrawl.dev/app/api-keys',
+    apiKeyEnvVar: 'FIRECRAWL_API_KEY',
+    command: 'npx',
+    args: ['-y', 'firecrawl-mcp'],
+    recommended: false,
+  },
 ];
 
 // Icon component mapping for Quick Setup
@@ -391,6 +404,8 @@ function QuickSetupIcon({ icon, className }: { icon: QuickSetupServer['icon']; c
       return <Bot className={className} />;
     case 'Github':
       return <Github className={className} />;
+    case 'Flame':
+      return <Flame className={className} />;
   }
 }
 
@@ -1307,8 +1322,21 @@ function MCPServersTab() {
 function ResearchSettingsTab() {
   const { settings, loading, updateSettings, runResearch } = useSettings();
   const { maskedKey, hasKey, loading: apiKeyLoading, setApiKey } = useApiKey();
+  const {
+    maskedKey: openaiMaskedKey,
+    hasKey: hasOpenaiKey,
+    loading: openaiKeyLoading,
+    setApiKey: setOpenaiApiKey
+  } = useOpenAIApiKey();
+  const { servers: mcpServers } = useMCPServers();
   const [running, setRunning] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState<string | null>(null);
+  
+  // Check if Firecrawl MCP server is configured
+  const hasFirecrawlConfigured = mcpServers.some(s => 
+    s.name.toLowerCase().includes('firecrawl') || 
+    (s.config && JSON.stringify(s.config).toLowerCase().includes('firecrawl'))
+  );
 
   // Auto-save helper with visual feedback
   const autoSave = async (key: string, value: unknown) => {
@@ -1322,11 +1350,17 @@ function ResearchSettingsTab() {
     }
   };
 
-  // API Key state
+  // Anthropic API Key state
   const [newApiKey, setNewApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [savingApiKey, setSavingApiKey] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+
+  // OpenAI API Key state
+  const [newOpenaiKey, setNewOpenaiKey] = useState('');
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [savingOpenaiKey, setSavingOpenaiKey] = useState(false);
+  const [openaiKeyError, setOpenaiKeyError] = useState<string | null>(null);
 
   const handleSaveApiKey = async () => {
     if (!newApiKey.trim()) return;
@@ -1348,6 +1382,29 @@ function ResearchSettingsTab() {
       setApiKeyError(err instanceof Error ? err.message : 'Failed to save API key');
     } finally {
       setSavingApiKey(false);
+    }
+  };
+
+  const handleSaveOpenaiKey = async () => {
+    if (!newOpenaiKey.trim()) return;
+
+    if (!newOpenaiKey.startsWith('sk-')) {
+      setOpenaiKeyError("Invalid API key format. OpenAI API keys start with 'sk-'");
+      return;
+    }
+
+    setSavingOpenaiKey(true);
+    setOpenaiKeyError(null);
+    try {
+      const success = await setOpenaiApiKey(newOpenaiKey);
+      if (success) {
+        setNewOpenaiKey('');
+        setShowOpenaiKey(false);
+      }
+    } catch (err) {
+      setOpenaiKeyError(err instanceof Error ? err.message : 'Failed to save OpenAI API key');
+    } finally {
+      setSavingOpenaiKey(false);
     }
   };
 
@@ -1487,7 +1544,240 @@ function ResearchSettingsTab() {
           )}
         </div>
 
-        {/* Web Search Section */}
+        {/* Image Generation Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Image className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Header Image Generation</h3>
+          </div>
+
+          {/* Enable toggle */}
+          <div className="flex items-start gap-3 mb-4">
+            <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input
+                type="checkbox"
+                checked={settings.enable_image_generation ?? false}
+                onChange={(e) => autoSave('enable_image_generation', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+            </label>
+            <div className="flex-1">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Generate header images for briefing cards using DALL-E (~$0.02/image)
+              </p>
+              {savedIndicator === 'enable_image_generation' && (
+                <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 mt-1">
+                  <CheckCircle2 className="w-3 h-3" /> Saved
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* OpenAI API Key - only show when image generation is enabled */}
+          {settings.enable_image_generation && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Key className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">OpenAI API Key</h4>
+              </div>
+
+              {openaiKeyLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Checking API key...
+                </div>
+              ) : hasOpenaiKey ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-green-800 dark:text-green-300">OpenAI API Key Configured</p>
+                      <p className="text-sm text-green-600 dark:text-green-400 tracking-wider">{openaiMaskedKey}</p>
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Replace with a different key:</p>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type={showOpenaiKey ? 'text' : 'password'}
+                          value={newOpenaiKey}
+                          onChange={(e) => {
+                            setNewOpenaiKey(e.target.value);
+                            setOpenaiKeyError(null);
+                          }}
+                          placeholder="sk-..."
+                          className="input w-full pr-10 font-mono text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        >
+                          {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <MagneticButton
+                        onClick={handleSaveOpenaiKey}
+                        disabled={!newOpenaiKey.trim() || savingOpenaiKey}
+                        variant="primary"
+                        className="flex items-center gap-1.5"
+                      >
+                        {savingOpenaiKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        Save
+                      </MagneticButton>
+                    </div>
+                    {openaiKeyError && (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-2">{openaiKeyError}</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                    Add your OpenAI API key to generate header images.
+                  </p>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showOpenaiKey ? 'text' : 'password'}
+                        value={newOpenaiKey}
+                        onChange={(e) => {
+                          setNewOpenaiKey(e.target.value);
+                          setOpenaiKeyError(null);
+                        }}
+                        placeholder="sk-..."
+                        className="input w-full pr-10 font-mono text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <MagneticButton
+                      onClick={handleSaveOpenaiKey}
+                      disabled={!newOpenaiKey.trim() || savingOpenaiKey}
+                      variant="primary"
+                      className="flex items-center gap-1.5"
+                    >
+                      {savingOpenaiKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save
+                    </MagneticButton>
+                  </div>
+                  {openaiKeyError && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-2">{openaiKeyError}</p>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">platform.openai.com</a>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Research Mode Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Research Mode</h3>
+            {savedIndicator === 'research_mode' && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3 h-3" /> Saved
+              </motion.span>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            {/* Standard Mode */}
+            <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+              hover:bg-gray-100 dark:hover:bg-gray-700/50
+              border-gray-200 dark:border-gray-600
+              has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50 dark:has-[:checked]:bg-primary-900/20">
+              <input
+                type="radio"
+                name="research_mode"
+                value="standard"
+                checked={(settings.research_mode ?? 'standard') === 'standard'}
+                onChange={() => autoSave('research_mode', 'standard')}
+                className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">Standard Research</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Uses Brave/Perplexity search + built-in page fetching. Fast and cost-effective for daily briefings.
+                </p>
+              </div>
+            </label>
+            
+            {/* Deep Research Mode (Firecrawl) */}
+            <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+              hover:bg-gray-100 dark:hover:bg-gray-700/50
+              border-gray-200 dark:border-gray-600
+              has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50 dark:has-[:checked]:bg-orange-900/20">
+              <input
+                type="radio"
+                name="research_mode"
+                value="firecrawl"
+                checked={(settings.research_mode ?? 'standard') === 'firecrawl'}
+                onChange={() => autoSave('research_mode', 'firecrawl')}
+                className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">Deep Research</span>
+                  <Flame className="w-4 h-4 text-orange-500" />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Uses Firecrawl for comprehensive web extraction. Better for complex topics requiring multi-page analysis.
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <Info className="w-3 h-3" />
+                  Requires Firecrawl MCP server to be configured (uses Firecrawl credits)
+                </p>
+              </div>
+            </label>
+          </div>
+          
+          {(settings.research_mode ?? 'standard') === 'firecrawl' && !hasFirecrawlConfigured && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800"
+            >
+              <p className="text-xs text-orange-700 dark:text-orange-300">
+                <strong>Setup required:</strong> Add Firecrawl to your MCP servers in the MCP Servers tab. 
+                Get your API key from <a href="https://firecrawl.dev/app/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-900 dark:hover:text-orange-200">firecrawl.dev</a>
+              </p>
+            </motion.div>
+          )}
+          {(settings.research_mode ?? 'standard') === 'firecrawl' && hasFirecrawlConfigured && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800"
+            >
+              <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Firecrawl MCP server is configured and ready
+              </p>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Web Search Section - Only show if not in Firecrawl mode */}
+        {(settings.research_mode ?? 'standard') !== 'firecrawl' && (
         <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-3">
             <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -1524,6 +1814,133 @@ function ResearchSettingsTab() {
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Alternative: Configure <span className="font-medium">Brave Search</span> MCP server (free tier available) in the MCP Servers tab.
+              </p>
+            </div>
+          </div>
+        </div>
+        )}
+
+        {/* Condensed Briefing Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Briefing Format</h3>
+          </div>
+          <div className="flex items-start gap-3">
+            <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input
+                type="checkbox"
+                checked={settings.condense_briefings ?? false}
+                onChange={(e) => autoSave('condense_briefings', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+            </label>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Condensed Briefing
+                </span>
+                {savedIndicator === 'condense_briefings' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Combine all topics into one comprehensive daily briefing instead of separate cards.
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Creates a single in-depth story covering all your research topics with deeper analysis.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Deduplication Section */}
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 className="font-medium text-gray-900 dark:text-white">Deduplication</h3>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Prevent repeated briefing cards about topics you've already seen.
+          </p>
+
+          <div className="space-y-4">
+            {/* Lookback Days */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Lookback Period
+                </label>
+                {savedIndicator === 'dedup_days' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  value={settings.dedup_days ?? 14}
+                  onChange={(e) => autoSave('dedup_days', parseInt(e.target.value))}
+                  className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-20 text-right">
+                  {(settings.dedup_days ?? 14) === 0 ? 'Disabled' : `${settings.dedup_days ?? 14} days`}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                How far back to check for duplicate content. Set to 0 to disable deduplication.
+              </p>
+            </div>
+
+            {/* Similarity Threshold */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Similarity Threshold
+                </label>
+                {savedIndicator === 'dedup_threshold' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Saved
+                  </motion.span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="50"
+                  max="100"
+                  value={Math.round((settings.dedup_threshold ?? 0.75) * 100)}
+                  onChange={(e) => autoSave('dedup_threshold', parseInt(e.target.value) / 100)}
+                  disabled={(settings.dedup_days ?? 14) === 0}
+                  className={`flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-600 ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}
+                />
+                <span className={`text-sm font-medium text-gray-700 dark:text-gray-300 w-12 text-right ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}>
+                  {Math.round((settings.dedup_threshold ?? 0.75) * 100)}%
+                </span>
+              </div>
+              <p className={`text-xs text-gray-500 dark:text-gray-400 mt-1 ${(settings.dedup_days ?? 14) === 0 ? 'opacity-50' : ''}`}>
+                How similar titles must be to be considered duplicates. Higher = stricter matching.
               </p>
             </div>
           </div>

@@ -1,8 +1,8 @@
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::AppHandle;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// Topic struct for database operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,35 +90,41 @@ pub fn get_connection() -> Result<Connection> {
 
 /// Get all topics ordered by sort_order
 pub fn get_all_topics(conn: &Connection) -> std::result::Result<Vec<Topic>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, description, enabled, created_at, updated_at
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, enabled, created_at, updated_at
          FROM topics
-         ORDER BY sort_order ASC, created_at ASC"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         ORDER BY sort_order ASC, created_at ASC",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let topics = stmt.query_map([], |row| {
-        Ok(Topic {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
-            enabled: row.get::<_, i32>(3)? != 0,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
+    let topics = stmt
+        .query_map([], |row| {
+            Ok(Topic {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                enabled: row.get::<_, i32>(3)? != 0,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(topics)
 }
 
 /// Get a topic by ID
 pub fn get_topic_by_id(conn: &Connection, id: &str) -> std::result::Result<Option<Topic>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, description, enabled, created_at, updated_at
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, enabled, created_at, updated_at
          FROM topics
-         WHERE id = ?1"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         WHERE id = ?1",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     let result = stmt.query_row([id], |row| {
         Ok(Topic {
@@ -139,7 +145,11 @@ pub fn get_topic_by_id(conn: &Connection, id: &str) -> std::result::Result<Optio
 }
 
 /// Insert a new topic
-pub fn insert_topic(conn: &Connection, topic: &Topic, sort_order: i32) -> std::result::Result<(), String> {
+pub fn insert_topic(
+    conn: &Connection,
+    topic: &Topic,
+    sort_order: i32,
+) -> std::result::Result<(), String> {
     conn.execute(
         "INSERT INTO topics (id, name, description, enabled, sort_order, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -152,25 +162,28 @@ pub fn insert_topic(conn: &Connection, topic: &Topic, sort_order: i32) -> std::r
             topic.created_at,
             topic.updated_at,
         ],
-    ).map_err(|e| format!("Failed to insert topic: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to insert topic: {}", e))?;
 
     Ok(())
 }
 
 /// Update an existing topic
 pub fn update_topic(conn: &Connection, topic: &Topic) -> std::result::Result<(), String> {
-    let rows_affected = conn.execute(
-        "UPDATE topics
+    let rows_affected = conn
+        .execute(
+            "UPDATE topics
          SET name = ?1, description = ?2, enabled = ?3, updated_at = ?4
          WHERE id = ?5",
-        params![
-            topic.name,
-            topic.description,
-            if topic.enabled { 1 } else { 0 },
-            topic.updated_at,
-            topic.id,
-        ],
-    ).map_err(|e| format!("Failed to update topic: {}", e))?;
+            params![
+                topic.name,
+                topic.description,
+                if topic.enabled { 1 } else { 0 },
+                topic.updated_at,
+                topic.id,
+            ],
+        )
+        .map_err(|e| format!("Failed to update topic: {}", e))?;
 
     if rows_affected == 0 {
         return Err(format!("Topic with id '{}' not found", topic.id));
@@ -181,10 +194,9 @@ pub fn update_topic(conn: &Connection, topic: &Topic) -> std::result::Result<(),
 
 /// Delete a topic by ID
 pub fn delete_topic(conn: &Connection, id: &str) -> std::result::Result<(), String> {
-    let rows_affected = conn.execute(
-        "DELETE FROM topics WHERE id = ?1",
-        [id],
-    ).map_err(|e| format!("Failed to delete topic: {}", e))?;
+    let rows_affected = conn
+        .execute("DELETE FROM topics WHERE id = ?1", [id])
+        .map_err(|e| format!("Failed to delete topic: {}", e))?;
 
     if rows_affected == 0 {
         return Err(format!("Topic with id '{}' not found", id));
@@ -199,7 +211,8 @@ pub fn reorder_topics(conn: &Connection, ids: &[String]) -> std::result::Result<
         conn.execute(
             "UPDATE topics SET sort_order = ?1 WHERE id = ?2",
             params![index as i32, id],
-        ).map_err(|e| format!("Failed to update sort order: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to update sort order: {}", e))?;
     }
 
     Ok(())
@@ -207,11 +220,8 @@ pub fn reorder_topics(conn: &Connection, ids: &[String]) -> std::result::Result<
 
 /// Get the next available sort_order value
 pub fn get_next_sort_order(conn: &Connection) -> std::result::Result<i32, String> {
-    let result: std::result::Result<Option<i32>, _> = conn.query_row(
-        "SELECT MAX(sort_order) FROM topics",
-        [],
-        |row| row.get(0),
-    );
+    let result: std::result::Result<Option<i32>, _> =
+        conn.query_row("SELECT MAX(sort_order) FROM topics", [], |row| row.get(0));
 
     match result {
         Ok(Some(max)) => Ok(max + 1),
@@ -222,11 +232,13 @@ pub fn get_next_sort_order(conn: &Connection) -> std::result::Result<i32, String
 
 /// Check if a topic with the given name already exists (case-insensitive)
 pub fn topic_name_exists(conn: &Connection, name: &str) -> std::result::Result<bool, String> {
-    let count: i32 = conn.query_row(
-        "SELECT COUNT(*) FROM topics WHERE LOWER(name) = LOWER(?1)",
-        [name],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to check topic name: {}", e))?;
+    let count: i32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM topics WHERE LOWER(name) = LOWER(?1)",
+            [name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to check topic name: {}", e))?;
 
     Ok(count > 0)
 }
@@ -236,27 +248,35 @@ pub fn topic_name_exists(conn: &Connection, name: &str) -> std::result::Result<b
 // ============================================================================
 
 /// Get all chat messages for a specific card, ordered by creation time
-pub fn get_chat_messages(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<Vec<ChatMessage>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
+pub fn get_chat_messages(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<Vec<ChatMessage>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
          FROM chat_messages
          WHERE briefing_id = ?1 AND card_index = ?2
-         ORDER BY created_at ASC"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         ORDER BY created_at ASC",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let messages = stmt.query_map(params![briefing_id, card_index], |row| {
-        Ok(ChatMessage {
-            id: row.get(0)?,
-            briefing_id: row.get(1)?,
-            card_index: row.get(2)?,
-            role: row.get(3)?,
-            content: row.get(4)?,
-            tokens_used: row.get(5)?,
-            created_at: row.get(6)?,
+    let messages = stmt
+        .query_map(params![briefing_id, card_index], |row| {
+            Ok(ChatMessage {
+                id: row.get(0)?,
+                briefing_id: row.get(1)?,
+                card_index: row.get(2)?,
+                role: row.get(3)?,
+                content: row.get(4)?,
+                tokens_used: row.get(5)?,
+                created_at: row.get(6)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(messages)
 }
@@ -274,19 +294,25 @@ pub fn insert_chat_message(
         "INSERT INTO chat_messages (briefing_id, card_index, role, content, tokens_used)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![briefing_id, card_index, role, content, tokens_used],
-    ).map_err(|e| format!("Failed to insert chat message: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to insert chat message: {}", e))?;
 
     let id = conn.last_insert_rowid();
     Ok(id)
 }
 
 /// Get a single chat message by ID
-pub fn get_chat_message_by_id(conn: &Connection, id: i64) -> std::result::Result<Option<ChatMessage>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
+pub fn get_chat_message_by_id(
+    conn: &Connection,
+    id: i64,
+) -> std::result::Result<Option<ChatMessage>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, briefing_id, card_index, role, content, tokens_used, created_at
          FROM chat_messages
-         WHERE id = ?1"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         WHERE id = ?1",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     let result = stmt.query_row([id], |row| {
         Ok(ChatMessage {
@@ -308,27 +334,35 @@ pub fn get_chat_message_by_id(conn: &Connection, id: i64) -> std::result::Result
 }
 
 /// Delete all chat messages for a specific card
-pub fn delete_chat_messages(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<usize, String> {
-    let rows_affected = conn.execute(
-        "DELETE FROM chat_messages WHERE briefing_id = ?1 AND card_index = ?2",
-        params![briefing_id, card_index],
-    ).map_err(|e| format!("Failed to delete chat messages: {}", e))?;
+pub fn delete_chat_messages(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<usize, String> {
+    let rows_affected = conn
+        .execute(
+            "DELETE FROM chat_messages WHERE briefing_id = ?1 AND card_index = ?2",
+            params![briefing_id, card_index],
+        )
+        .map_err(|e| format!("Failed to delete chat messages: {}", e))?;
 
     Ok(rows_affected)
 }
 
 /// Get all cards that have chat messages
 pub fn get_cards_with_chats(conn: &Connection) -> std::result::Result<Vec<CardWithChat>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT briefing_id, card_index FROM chat_messages"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT briefing_id, card_index FROM chat_messages")
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let cards = stmt.query_map([], |row| {
-        Ok(CardWithChat {
-            briefing_id: row.get(0)?,
-            card_index: row.get(1)?,
+    let cards = stmt
+        .query_map([], |row| {
+            Ok(CardWithChat {
+                briefing_id: row.get(0)?,
+                card_index: row.get(1)?,
+            })
         })
-    }).map_err(|e| format!("Failed to query cards with chats: {}", e))?;
+        .map_err(|e| format!("Failed to query cards with chats: {}", e))?;
 
     let result: Vec<CardWithChat> = cards.flatten().collect();
     Ok(result)
@@ -348,58 +382,83 @@ pub struct Bookmark {
 }
 
 /// Add a bookmark for a card (idempotent - ignores if already exists)
-pub fn add_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<(), String> {
+pub fn add_bookmark(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<(), String> {
     conn.execute(
         "INSERT OR IGNORE INTO bookmarks (briefing_id, card_index) VALUES (?1, ?2)",
         params![briefing_id, card_index],
-    ).map_err(|e| format!("Failed to add bookmark: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to add bookmark: {}", e))?;
     Ok(())
 }
 
 /// Remove a bookmark for a card
-pub fn remove_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
-    let rows_affected = conn.execute(
-        "DELETE FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
-        params![briefing_id, card_index],
-    ).map_err(|e| format!("Failed to remove bookmark: {}", e))?;
+pub fn remove_bookmark(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<bool, String> {
+    let rows_affected = conn
+        .execute(
+            "DELETE FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
+            params![briefing_id, card_index],
+        )
+        .map_err(|e| format!("Failed to remove bookmark: {}", e))?;
     Ok(rows_affected > 0)
 }
 
 /// Check if a card is bookmarked
-pub fn is_bookmarked(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
-    let count: i32 = conn.query_row(
-        "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
-        params![briefing_id, card_index],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to check bookmark: {}", e))?;
+pub fn is_bookmarked(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<bool, String> {
+    let count: i32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1 AND card_index = ?2",
+            params![briefing_id, card_index],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to check bookmark: {}", e))?;
     Ok(count > 0)
 }
 
 /// Get all bookmarks ordered by creation time (newest first)
 pub fn get_all_bookmarks(conn: &Connection) -> std::result::Result<Vec<Bookmark>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, briefing_id, card_index, created_at
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, briefing_id, card_index, created_at
          FROM bookmarks
-         ORDER BY created_at DESC"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         ORDER BY created_at DESC",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let bookmarks = stmt.query_map([], |row| {
-        Ok(Bookmark {
-            id: row.get(0)?,
-            briefing_id: row.get(1)?,
-            card_index: row.get(2)?,
-            created_at: row.get(3)?,
+    let bookmarks = stmt
+        .query_map([], |row| {
+            Ok(Bookmark {
+                id: row.get(0)?,
+                briefing_id: row.get(1)?,
+                card_index: row.get(2)?,
+                created_at: row.get(3)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(bookmarks)
 }
 
 /// Toggle bookmark status for a card (add if not exists, remove if exists)
 /// Returns true if bookmark was added, false if removed
-pub fn toggle_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> std::result::Result<bool, String> {
+pub fn toggle_bookmark(
+    conn: &Connection,
+    briefing_id: i64,
+    card_index: i32,
+) -> std::result::Result<bool, String> {
     if is_bookmarked(conn, briefing_id, card_index)? {
         remove_bookmark(conn, briefing_id, card_index)?;
         Ok(false)
@@ -416,12 +475,36 @@ pub fn toggle_bookmark(conn: &Connection, briefing_id: i64, card_index: i32) -> 
 /// Delete briefings older than `days`, excluding any briefings that have bookmarked cards.
 /// Returns the count of deleted briefings.
 pub fn cleanup_old_briefings(conn: &Connection, days: i32) -> std::result::Result<usize, String> {
-    let deleted = conn.execute(
-        "DELETE FROM briefings
+    // First get the IDs of briefings that will be deleted (for image cleanup)
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM briefings
          WHERE date < date('now', '-' || ?1 || ' days')
            AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)",
-        [days],
-    ).map_err(|e| format!("Failed to cleanup old briefings: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+
+    let ids: Vec<i64> = stmt
+        .query_map([days], |row| row.get(0))
+        .map_err(|e| format!("Failed to query briefing IDs: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Delete images for each briefing
+    for id in &ids {
+        if let Err(e) = crate::image_gen::delete_briefing_images(*id) {
+            tracing::warn!("Failed to delete images for briefing {}: {}", id, e);
+        }
+    }
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM briefings
+         WHERE date < date('now', '-' || ?1 || ' days')
+           AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)",
+            [days],
+        )
+        .map_err(|e| format!("Failed to cleanup old briefings: {}", e))?;
 
     Ok(deleted)
 }
@@ -429,49 +512,59 @@ pub fn cleanup_old_briefings(conn: &Connection, days: i32) -> std::result::Resul
 /// Delete a specific briefing by ID.
 /// Returns true if a briefing was deleted, false if not found.
 pub fn delete_briefing(conn: &Connection, id: i64) -> std::result::Result<bool, String> {
-    let deleted = conn.execute(
-        "DELETE FROM briefings WHERE id = ?1",
-        [id],
-    ).map_err(|e| format!("Failed to delete briefing: {}", e))?;
+    // Delete associated images first
+    if let Err(e) = crate::image_gen::delete_briefing_images(id) {
+        tracing::warn!("Failed to delete images for briefing {}: {}", id, e);
+    }
+
+    let deleted = conn
+        .execute("DELETE FROM briefings WHERE id = ?1", [id])
+        .map_err(|e| format!("Failed to delete briefing: {}", e))?;
 
     Ok(deleted > 0)
 }
 
 /// Get count of briefings that would be deleted by cleanup (for UI preview).
 /// Excludes briefings with bookmarked cards.
-pub fn count_cleanup_candidates(conn: &Connection, days: i32) -> std::result::Result<usize, String> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM briefings
+pub fn count_cleanup_candidates(
+    conn: &Connection,
+    days: i32,
+) -> std::result::Result<usize, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM briefings
          WHERE date < date('now', '-' || ?1 || ' days')
            AND id NOT IN (SELECT DISTINCT briefing_id FROM bookmarks)",
-        [days],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to count cleanup candidates: {}", e))?;
+            [days],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count cleanup candidates: {}", e))?;
 
     Ok(count as usize)
 }
 
 /// Get total count of briefings in database.
 pub fn count_briefings(conn: &Connection) -> std::result::Result<usize, String> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM briefings",
-        [],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to count briefings: {}", e))?;
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM briefings", [], |row| row.get(0))
+        .map_err(|e| format!("Failed to count briefings: {}", e))?;
 
     Ok(count as usize)
 }
 
 /// Count total cards across all briefings.
 pub fn count_cards(conn: &Connection) -> std::result::Result<usize, String> {
-    let mut stmt = conn.prepare("SELECT cards FROM briefings")
+    let mut stmt = conn
+        .prepare("SELECT cards FROM briefings")
         .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     let mut total_cards = 0usize;
-    let rows = stmt.query_map([], |row| {
-        let cards_json: String = row.get(0)?;
-        Ok(cards_json)
-    }).map_err(|e| format!("Failed to query briefings: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            let cards_json: String = row.get(0)?;
+            Ok(cards_json)
+        })
+        .map_err(|e| format!("Failed to query briefings: {}", e))?;
 
     for cards_json in rows.flatten() {
         // Parse JSON array and count elements
@@ -484,14 +577,79 @@ pub fn count_cards(conn: &Connection) -> std::result::Result<usize, String> {
 }
 
 /// Check if a briefing has any bookmarked cards.
-pub fn briefing_has_bookmarks(conn: &Connection, briefing_id: i64) -> std::result::Result<bool, String> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1",
-        [briefing_id],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to check briefing bookmarks: {}", e))?;
+pub fn briefing_has_bookmarks(
+    conn: &Connection,
+    briefing_id: i64,
+) -> std::result::Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM bookmarks WHERE briefing_id = ?1",
+            [briefing_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to check briefing bookmarks: {}", e))?;
 
     Ok(count > 0)
+}
+
+/// Get recent card fingerprints for deduplication.
+/// Returns (title, topic, summary) for all cards from the last N days.
+pub fn get_recent_card_fingerprints(
+    conn: &Connection,
+    days: i32,
+) -> std::result::Result<Vec<crate::dedup::CardFingerprint>, String> {
+    let query = format!(
+        "SELECT cards FROM briefings WHERE date > datetime('now', '-{} days') ORDER BY date DESC",
+        days
+    );
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let cards_json: String = row.get(0)?;
+            Ok(cards_json)
+        })
+        .map_err(|e| format!("Failed to query briefings: {}", e))?;
+
+    let mut fingerprints = Vec::new();
+
+    for row in rows {
+        let cards_json = row.map_err(|e| format!("Failed to read row: {}", e))?;
+
+        // Parse JSON array of cards
+        if let Ok(cards) = serde_json::from_str::<Vec<serde_json::Value>>(&cards_json) {
+            for card in cards {
+                let title = card
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let topic = card
+                    .get("topic")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let summary = card
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if !title.is_empty() {
+                    fingerprints.push(crate::dedup::CardFingerprint {
+                        title,
+                        topic,
+                        summary,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(fingerprints)
 }
 
 // ============================================================================
@@ -503,20 +661,24 @@ pub fn briefing_has_bookmarks(conn: &Connection, briefing_id: i64) -> std::resul
 /// This is idempotent.
 fn migrate_chat_messages_add_card_index(conn: &Connection) -> std::result::Result<(), String> {
     // Check if card_index column exists
-    let mut stmt = conn.prepare("PRAGMA table_info(chat_messages)")
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(chat_messages)")
         .map_err(|e| format!("Failed to get table info: {}", e))?;
 
-    let has_card_index = stmt.query_map([], |row| {
-        row.get::<_, String>(1) // column name is at index 1
-    }).map_err(|e| format!("Failed to query table info: {}", e))?
-    .any(|name| name.map(|n| n == "card_index").unwrap_or(false));
+    let has_card_index = stmt
+        .query_map([], |row| {
+            row.get::<_, String>(1) // column name is at index 1
+        })
+        .map_err(|e| format!("Failed to query table info: {}", e))?
+        .any(|name| name.map(|n| n == "card_index").unwrap_or(false));
 
     if !has_card_index {
         info!("Migrating chat_messages table: adding card_index column");
         conn.execute(
             "ALTER TABLE chat_messages ADD COLUMN card_index INTEGER NOT NULL DEFAULT 0",
             [],
-        ).map_err(|e| format!("Failed to add card_index column: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to add card_index column: {}", e))?;
         info!("Chat messages column migration complete");
     }
 
@@ -545,14 +707,15 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
     };
 
     // Check if migration already done (topics table has data)
-    let count: i32 = conn.query_row(
-        "SELECT COUNT(*) FROM topics",
-        [],
-        |row| row.get(0),
-    ).map_err(|e| format!("Failed to check topics count: {}", e))?;
+    let count: i32 = conn
+        .query_row("SELECT COUNT(*) FROM topics", [], |row| row.get(0))
+        .map_err(|e| format!("Failed to check topics count: {}", e))?;
 
     if count > 0 {
-        debug!("Topics table already has {} entries, skipping migration", count);
+        debug!(
+            "Topics table already has {} entries, skipping migration",
+            count
+        );
         return Ok(result);
     }
 
@@ -567,7 +730,9 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
     let content = match std::fs::read_to_string(&json_path) {
         Ok(c) => c,
         Err(e) => {
-            result.errors.push(format!("Failed to read interests.json: {}", e));
+            result
+                .errors
+                .push(format!("Failed to read interests.json: {}", e));
             return Ok(result);
         }
     };
@@ -581,7 +746,9 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
     let config: TopicsConfig = match serde_json::from_str(&content) {
         Ok(c) => c,
         Err(e) => {
-            result.errors.push(format!("Failed to parse interests.json: {}", e));
+            result
+                .errors
+                .push(format!("Failed to parse interests.json: {}", e));
             warn!("interests.json is corrupt, starting fresh: {}", e);
             return Ok(result);
         }
@@ -594,7 +761,9 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
                 result.topics_migrated += 1;
             }
             Err(e) => {
-                result.errors.push(format!("Failed to migrate topic '{}': {}", topic.name, e));
+                result
+                    .errors
+                    .push(format!("Failed to migrate topic '{}': {}", topic.name, e));
             }
         }
     }
@@ -608,13 +777,18 @@ pub fn migrate_topics_from_json(conn: &Connection) -> std::result::Result<Migrat
                 info!("Backed up interests.json to interests.json.migrated");
             }
             Err(e) => {
-                result.errors.push(format!("Failed to backup interests.json: {}", e));
+                result
+                    .errors
+                    .push(format!("Failed to backup interests.json: {}", e));
             }
         }
     }
 
     if result.topics_migrated > 0 {
-        info!("Migrated {} topics from JSON to SQLite", result.topics_migrated);
+        info!(
+            "Migrated {} topics from JSON to SQLite",
+            result.topics_migrated
+        );
     }
 
     Ok(result)
@@ -635,7 +809,8 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (?1, ?2, ?3)",
             ["2025-01-01", "Test Briefing", "[]"],
-        ).unwrap();
+        )
+        .unwrap();
         conn.last_insert_rowid()
     }
 
@@ -651,7 +826,8 @@ mod tests {
             "user",
             "Hello, test message",
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(id > 0);
     }
 
@@ -670,14 +846,7 @@ mod tests {
         let briefing_id = create_test_briefing(&conn);
 
         // Insert a user message for card 0
-        insert_chat_message(
-            &conn,
-            briefing_id,
-            0,
-            "user",
-            "What is this about?",
-            None,
-        ).unwrap();
+        insert_chat_message(&conn, briefing_id, 0, "user", "What is this about?", None).unwrap();
 
         // Insert an assistant message for card 0
         insert_chat_message(
@@ -687,7 +856,8 @@ mod tests {
             "assistant",
             "This briefing is about...",
             Some(100),
-        ).unwrap();
+        )
+        .unwrap();
 
         let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
         assert_eq!(messages.len(), 2);
@@ -723,14 +893,7 @@ mod tests {
         let conn = setup_test_db();
         let briefing_id = create_test_briefing(&conn);
 
-        let id = insert_chat_message(
-            &conn,
-            briefing_id,
-            0,
-            "user",
-            "Test content",
-            None,
-        ).unwrap();
+        let id = insert_chat_message(&conn, briefing_id, 0, "user", "Test content", None).unwrap();
 
         let retrieved = get_chat_message_by_id(&conn, id).unwrap();
         assert!(retrieved.is_some());
@@ -762,7 +925,8 @@ mod tests {
                 "user",
                 &format!("Message {}", i),
                 None,
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // Insert messages for card 1 (should not be deleted)
@@ -795,7 +959,8 @@ mod tests {
         insert_chat_message(&conn, briefing_id, 1, "user", "Test 1", None).unwrap();
 
         // Delete the briefing (should cascade to all chat_messages)
-        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id]).unwrap();
+        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id])
+            .unwrap();
 
         // All chat messages should be gone
         let messages = get_chat_messages(&conn, briefing_id, 0).unwrap();
@@ -821,8 +986,12 @@ mod tests {
 
         let cards = get_cards_with_chats(&conn).unwrap();
         assert_eq!(cards.len(), 2);
-        assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 0));
-        assert!(cards.iter().any(|c| c.briefing_id == briefing_id && c.card_index == 2));
+        assert!(cards
+            .iter()
+            .any(|c| c.briefing_id == briefing_id && c.card_index == 0));
+        assert!(cards
+            .iter()
+            .any(|c| c.briefing_id == briefing_id && c.card_index == 2));
     }
 
     // ========================================================================
@@ -937,7 +1106,8 @@ mod tests {
         assert!(is_bookmarked(&conn, briefing_id, 0).unwrap());
 
         // Delete the briefing (should cascade to bookmarks)
-        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id]).unwrap();
+        conn.execute("DELETE FROM briefings WHERE id = ?1", [briefing_id])
+            .unwrap();
 
         // Bookmark should be gone
         let bookmarks = get_all_bookmarks(&conn).unwrap();
@@ -992,21 +1162,24 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Test', ?)",
             [r#"[{"title":"Card 1"},{"title":"Card 2"}]"#],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(count_cards(&conn).unwrap(), 2);
 
         // Create briefing with 3 cards
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Test 2', ?)",
             [r#"[{"title":"A"},{"title":"B"},{"title":"C"}]"#],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(count_cards(&conn).unwrap(), 5); // 2 + 3
 
         // Empty cards array still counts as 0
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Empty', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(count_cards(&conn).unwrap(), 5); // Still 5
     }
 
@@ -1038,7 +1211,8 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Recent', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let recent_id: i64 = conn.last_insert_rowid();
 
         assert_eq!(count_briefings(&conn).unwrap(), 2);
@@ -1048,24 +1222,26 @@ mod tests {
 
         // Cleanup briefings older than 30 days
         let deleted = cleanup_old_briefings(&conn, 30).unwrap();
-        assert_eq!(deleted, 0);  // Old one is bookmarked, so not deleted
+        assert_eq!(deleted, 0); // Old one is bookmarked, so not deleted
 
         assert_eq!(count_briefings(&conn).unwrap(), 2);
 
         // Remove bookmark and try again
         remove_bookmark(&conn, old_id, 0).unwrap();
         let deleted = cleanup_old_briefings(&conn, 30).unwrap();
-        assert_eq!(deleted, 1);  // Now it gets deleted
+        assert_eq!(deleted, 1); // Now it gets deleted
 
         // Only recent briefing remains
         assert_eq!(count_briefings(&conn).unwrap(), 1);
 
         // Verify the recent one is still there
-        let exists: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM briefings WHERE id = ?1",
-            [recent_id],
-            |row| row.get(0),
-        ).unwrap();
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM briefings WHERE id = ?1",
+                [recent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(exists, 1);
     }
 
@@ -1090,7 +1266,8 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Recent', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 2 candidates for 30-day cleanup (100-day and 50-day old)
         assert_eq!(count_cleanup_candidates(&conn, 30).unwrap(), 2);

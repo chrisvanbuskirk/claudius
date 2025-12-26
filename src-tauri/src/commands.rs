@@ -1,11 +1,11 @@
+use crate::db::{self, Topic};
+use crate::research::CancelledEvent;
+use crate::research_state;
+use chrono::{Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use chrono::{Local, Utc};
-use uuid::Uuid;
 use tauri::Emitter;
-use crate::db::{self, Topic};
-use crate::research_state;
-use crate::research::CancelledEvent;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Briefing {
@@ -45,11 +45,33 @@ pub struct ResearchSettings {
     #[serde(default)]
     pub enable_web_search: bool,
     #[serde(default)]
-    pub retention_days: Option<i32>,  // None = never delete, Some(7/14/30/90)
+    pub retention_days: Option<i32>, // None = never delete, Some(7/14/30/90)
+    #[serde(default)]
+    pub condense_briefings: bool, // Combine all topics into one comprehensive card
+    #[serde(default = "default_dedup_days")]
+    pub dedup_days: i32, // Days to look back for duplicates
+    #[serde(default = "default_dedup_threshold")]
+    pub dedup_threshold: f64, // Similarity threshold (0.0-1.0)
+    #[serde(default)]
+    pub enable_image_generation: bool, // Generate header images using DALL-E
+    #[serde(default = "default_research_mode")]
+    pub research_mode: String, // "standard" | "firecrawl" - determines which tools are used
 }
 
 fn default_notification_sound() -> bool {
     true
+}
+
+fn default_dedup_days() -> i32 {
+    14
+}
+
+fn default_dedup_threshold() -> f64 {
+    0.75
+}
+
+fn default_research_mode() -> String {
+    "standard".to_string()
 }
 
 fn get_config_dir() -> PathBuf {
@@ -106,11 +128,10 @@ fn read_mcp_servers() -> Result<MCPServersConfig, String> {
         tracing::debug!("MCP servers file doesn't exist, returning empty config");
         return Ok(MCPServersConfig { servers: vec![] });
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read MCP servers: {}", e))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read MCP servers: {}", e))?;
     tracing::debug!("MCP servers file content: {}", content);
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse MCP servers: {}", e))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse MCP servers: {}", e))
 }
 
 fn write_mcp_servers(config: &MCPServersConfig) -> Result<(), String> {
@@ -118,8 +139,7 @@ fn write_mcp_servers(config: &MCPServersConfig) -> Result<(), String> {
     let path = get_mcp_servers_path();
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize MCP servers: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write MCP servers: {}", e))
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write MCP servers: {}", e))
 }
 
 fn read_settings() -> Result<ResearchSettings, String> {
@@ -133,13 +153,17 @@ fn read_settings() -> Result<ResearchSettings, String> {
             enable_notifications: true,
             notification_sound: true,
             enable_web_search: false,
-            retention_days: None,  // Never delete by default
+            retention_days: None, // Never delete by default
+            condense_briefings: false,
+            dedup_days: default_dedup_days(),
+            dedup_threshold: default_dedup_threshold(),
+            enable_image_generation: true,
+            research_mode: default_research_mode(),
         });
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read settings: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse settings: {}", e))
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
 }
 
 fn write_settings(settings: &ResearchSettings) -> Result<(), String> {
@@ -147,8 +171,7 @@ fn write_settings(settings: &ResearchSettings) -> Result<(), String> {
     let path = get_preferences_path();
     let content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write settings: {}", e))
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
 // Legacy config helpers for backwards compatibility
@@ -173,8 +196,7 @@ fn read_config() -> Result<serde_json::Value, String> {
     let content = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config: {}", e))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
 }
 
 fn write_config(config: &serde_json::Value) -> Result<(), String> {
@@ -182,95 +204,103 @@ fn write_config(config: &serde_json::Value) -> Result<(), String> {
     let config_path = get_config_path();
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))
+    std::fs::write(&config_path, content).map_err(|e| format!("Failed to write config: {}", e))
 }
 
 #[tauri::command]
 pub fn get_briefings(limit: Option<i32>) -> Result<Vec<Briefing>, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     let limit_value = limit.unwrap_or(30);
 
-    let mut stmt = conn.prepare(
-        "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
          ORDER BY date DESC
-         LIMIT ?1"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         LIMIT ?1",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let briefings = stmt.query_map([limit_value], |row| {
-        Ok(Briefing {
-            id: row.get(0)?,
-            date: row.get(1)?,
-            title: row.get(2)?,
-            cards: row.get(3)?,
-            research_time_ms: row.get(4)?,
-            model_used: row.get(5)?,
-            total_tokens: row.get(6)?,
+    let briefings = stmt
+        .query_map([limit_value], |row| {
+            Ok(Briefing {
+                id: row.get(0)?,
+                date: row.get(1)?,
+                title: row.get(2)?,
+                cards: row.get(3)?,
+                research_time_ms: row.get(4)?,
+                model_used: row.get(5)?,
+                total_tokens: row.get(6)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(briefings)
 }
 
 #[tauri::command]
 pub fn get_briefing(id: i64) -> Result<Briefing, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
-         WHERE id = ?1"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         WHERE id = ?1",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let briefing = stmt.query_row([id], |row| {
-        Ok(Briefing {
-            id: row.get(0)?,
-            date: row.get(1)?,
-            title: row.get(2)?,
-            cards: row.get(3)?,
-            research_time_ms: row.get(4)?,
-            model_used: row.get(5)?,
-            total_tokens: row.get(6)?,
+    let briefing = stmt
+        .query_row([id], |row| {
+            Ok(Briefing {
+                id: row.get(0)?,
+                date: row.get(1)?,
+                title: row.get(2)?,
+                cards: row.get(3)?,
+                research_time_ms: row.get(4)?,
+                model_used: row.get(5)?,
+                total_tokens: row.get(6)?,
+            })
         })
-    }).map_err(|e| format!("Failed to get briefing: {}", e))?;
+        .map_err(|e| format!("Failed to get briefing: {}", e))?;
 
     Ok(briefing)
 }
 
 #[tauri::command]
 pub fn search_briefings(query: String) -> Result<Vec<Briefing>, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     let search_pattern = format!("%{}%", query);
 
-    let mut stmt = conn.prepare(
-        "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
          WHERE title LIKE ?1 OR cards LIKE ?1
          ORDER BY date DESC
-         LIMIT 50"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         LIMIT 50",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let briefings = stmt.query_map([&search_pattern], |row| {
-        Ok(Briefing {
-            id: row.get(0)?,
-            date: row.get(1)?,
-            title: row.get(2)?,
-            cards: row.get(3)?,
-            research_time_ms: row.get(4)?,
-            model_used: row.get(5)?,
-            total_tokens: row.get(6)?,
+    let briefings = stmt
+        .query_map([&search_pattern], |row| {
+            Ok(Briefing {
+                id: row.get(0)?,
+                date: row.get(1)?,
+                title: row.get(2)?,
+                cards: row.get(3)?,
+                research_time_ms: row.get(4)?,
+                model_used: row.get(5)?,
+                total_tokens: row.get(6)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(briefings)
 }
@@ -286,14 +316,14 @@ pub fn add_feedback(
         return Err("Rating must be between 1 and 5".to_string());
     }
 
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     conn.execute(
         "INSERT INTO feedback (briefing_id, card_index, rating, reason)
          VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![briefing_id, card_index, rating, reason],
-    ).map_err(|e| format!("Failed to insert feedback: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to insert feedback: {}", e))?;
 
     Ok(())
 }
@@ -301,7 +331,10 @@ pub fn add_feedback(
 #[tauri::command]
 pub fn get_interests() -> Result<serde_json::Value, String> {
     let config = read_config()?;
-    Ok(config.get("interests").cloned().unwrap_or(serde_json::json!([])))
+    Ok(config
+        .get("interests")
+        .cloned()
+        .unwrap_or(serde_json::json!([])))
 }
 
 #[tauri::command]
@@ -340,7 +373,10 @@ pub fn remove_interest(topic: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_preferences() -> Result<serde_json::Value, String> {
     let config = read_config()?;
-    Ok(config.get("preferences").cloned().unwrap_or(serde_json::json!({})))
+    Ok(config
+        .get("preferences")
+        .cloned()
+        .unwrap_or(serde_json::json!({})))
 }
 
 #[tauri::command]
@@ -353,8 +389,8 @@ pub fn update_preferences(preferences: serde_json::Value) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
-    use crate::research::ResearchAgent;
     use crate::notifications::{notify_research_complete, notify_research_error};
+    use crate::research::ResearchAgent;
 
     tracing::info!("Starting research via Rust agent");
 
@@ -388,6 +424,11 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         notification_sound: true,
         enable_web_search: false,
         retention_days: None,
+        condense_briefings: false,
+        dedup_days: default_dedup_days(),
+        dedup_threshold: default_dedup_threshold(),
+        enable_image_generation: true,
+        research_mode: default_research_mode(),
     });
 
     // Get API key from file-based storage
@@ -444,11 +485,47 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     // Update phase
     research_state::set_phase("researching");
 
+    // Load past card fingerprints for deduplication
+    let (past_cards_context, past_fingerprints) = if settings.dedup_days > 0 {
+        match db::get_recent_card_fingerprints(&conn, settings.dedup_days) {
+            Ok(fingerprints) => {
+                let context = crate::dedup::format_past_cards_for_prompt(&fingerprints);
+                tracing::info!(
+                    "Loaded {} past card fingerprints for deduplication",
+                    fingerprints.len()
+                );
+                (Some(context), fingerprints)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load past cards for dedup, continuing without: {}",
+                    e
+                );
+                (None, Vec::new())
+            }
+        }
+    } else {
+        (None, Vec::new())
+    };
+
     // Create research agent and set cancellation token
-    let mut agent = ResearchAgent::new(api_key, Some(settings.model.clone()), settings.enable_web_search);
+    let mut agent = ResearchAgent::new(
+        api_key,
+        Some(settings.model.clone()),
+        settings.enable_web_search,
+        settings.research_mode.clone(),
+    );
     agent.set_cancellation_token(cancellation_token);
 
-    let result = match agent.run_research(topics, Some(app.clone())).await {
+    let mut result = match agent
+        .run_research(
+            topics,
+            Some(app.clone()),
+            settings.condense_briefings,
+            past_cards_context,
+        )
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             // Check if this was a cancellation
@@ -461,21 +538,37 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         }
     };
 
+    // Apply post-synthesis deduplication filter (safety net)
+    if !past_fingerprints.is_empty() && settings.dedup_threshold > 0.0 {
+        let original_count = result.cards.len();
+        result.cards = crate::dedup::filter_duplicates(
+            result.cards,
+            &past_fingerprints,
+            settings.dedup_threshold,
+        );
+        let filtered_count = original_count - result.cards.len();
+        if filtered_count > 0 {
+            tracing::info!("Deduplication filtered {} duplicate cards", filtered_count);
+        }
+    }
+
     // Update phase to saving
     research_state::set_phase("saving");
 
     // Emit research:saving event
-    let _ = app.emit("research:saving", serde_json::json!({
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "total_cards": result.cards.len(),
-    }));
+    let _ = app.emit(
+        "research:saving",
+        serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "total_cards": result.cards.len(),
+        }),
+    );
 
-    // Save to database
+    // Save to database first to get briefing_id for images
     let cards_json = serde_json::to_string(&result.cards)
         .map_err(|e| format!("Failed to serialize cards: {}", e))?;
 
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     conn.execute(
         "INSERT INTO briefings (date, title, cards, research_time_ms, model_used, total_tokens)
@@ -488,7 +581,73 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
             result.model_used,
             result.total_tokens as i64,
         ],
-    ).map_err(|e| format!("Failed to insert briefing: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to insert briefing: {}", e))?;
+
+    let briefing_id = conn.last_insert_rowid();
+
+    // Generate images for cards that have image_prompt (if enabled and API key configured)
+    if settings.enable_image_generation {
+        if let Some(openai_key) = get_openai_api_key_for_image_gen() {
+            use claudius::image_gen;
+
+            research_state::set_phase("Generating header images...");
+            let _ = app.emit(
+                "research:generating_images",
+                serde_json::json!({
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "total_cards": result.cards.len(),
+                }),
+            );
+
+            let mut images_generated = 0;
+            for (idx, card) in result.cards.iter_mut().enumerate() {
+                if let Some(ref prompt) = card.image_prompt {
+                    tracing::info!("Generating image for card {}: prompt='{}'", idx, prompt);
+
+                    match image_gen::generate_image(prompt, briefing_id, idx, &openai_key).await {
+                        image_gen::ImageGenResult::Success(path) => {
+                            card.image_path = Some(path.to_string_lossy().to_string());
+                            images_generated += 1;
+                            tracing::info!("Image generated for card {}: {:?}", idx, path);
+                        }
+                        image_gen::ImageGenResult::Disabled => {
+                            tracing::debug!("Image generation disabled");
+                            break;
+                        }
+                        image_gen::ImageGenResult::NoApiKey => {
+                            tracing::warn!("No OpenAI API key configured, skipping images");
+                            break;
+                        }
+                        image_gen::ImageGenResult::Failed(err) => {
+                            tracing::warn!("Failed to generate image for card {}: {}", idx, err);
+                            // Continue with other cards
+                        }
+                    }
+                }
+            }
+
+            // Update briefing with image paths if any were generated
+            if images_generated > 0 {
+                let updated_cards_json = serde_json::to_string(&result.cards)
+                    .map_err(|e| format!("Failed to serialize updated cards: {}", e))?;
+
+                conn.execute(
+                    "UPDATE briefings SET cards = ?1 WHERE id = ?2",
+                    rusqlite::params![updated_cards_json, briefing_id],
+                )
+                .map_err(|e| format!("Failed to update briefing with image paths: {}", e))?;
+
+                tracing::info!(
+                    "Updated briefing {} with {} image paths",
+                    briefing_id,
+                    images_generated
+                );
+            }
+        } else {
+            tracing::debug!("Image generation enabled but no OpenAI API key configured");
+        }
+    }
 
     tracing::info!(
         "Research completed: {} cards saved, {}ms",
@@ -502,11 +661,14 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
     }
 
     // Emit research:completed event after successful save
-    let _ = app.emit("research:completed", serde_json::json!({
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "total_cards": result.cards.len(),
-        "duration_ms": result.research_time_ms,
-    }));
+    let _ = app.emit(
+        "research:completed",
+        serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "total_cards": result.cards.len(),
+            "duration_ms": result.research_time_ms,
+        }),
+    );
 
     // Send success notification
     if settings.enable_notifications {
@@ -526,15 +688,13 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 pub fn get_topics() -> Result<Vec<Topic>, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
     db::get_all_topics(&conn)
 }
 
 #[tauri::command]
 pub fn add_topic(name: String, description: Option<String>) -> Result<Topic, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Check if topic already exists
     if db::topic_name_exists(&conn, &name)? {
@@ -564,8 +724,7 @@ pub fn update_topic(
     description: Option<String>,
     enabled: Option<bool>,
 ) -> Result<Topic, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Get existing topic
     let mut topic = db::get_topic_by_id(&conn, &id)?
@@ -590,15 +749,13 @@ pub fn update_topic(
 
 #[tauri::command]
 pub fn delete_topic(id: String) -> Result<(), String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
     db::delete_topic(&conn, &id)
 }
 
 #[tauri::command]
 pub fn reorder_topics(ids: Vec<String>) -> Result<(), String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
     db::reorder_topics(&conn, &ids)
 }
 
@@ -616,7 +773,9 @@ pub fn get_mcp_servers() -> Result<Vec<MCPServer>, String> {
 pub fn toggle_mcp_server(id: String, enabled: bool) -> Result<MCPServer, String> {
     let mut config = read_mcp_servers()?;
 
-    let server = config.servers.iter_mut()
+    let server = config
+        .servers
+        .iter_mut()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("MCP server with id '{}' not found", id))?;
 
@@ -630,7 +789,11 @@ pub fn toggle_mcp_server(id: String, enabled: bool) -> Result<MCPServer, String>
 
 #[tauri::command]
 pub fn add_mcp_server(name: String, config_data: serde_json::Value) -> Result<MCPServer, String> {
-    tracing::info!("add_mcp_server called with name: {}, config: {:?}", name, config_data);
+    tracing::info!(
+        "add_mcp_server called with name: {}, config: {:?}",
+        name,
+        config_data
+    );
 
     let mut config = read_mcp_servers().map_err(|e| {
         tracing::error!("Failed to read MCP servers: {}", e);
@@ -671,10 +834,16 @@ pub fn remove_mcp_server(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn update_mcp_server(id: String, name: Option<String>, config_data: Option<serde_json::Value>) -> Result<MCPServer, String> {
+pub fn update_mcp_server(
+    id: String,
+    name: Option<String>,
+    config_data: Option<serde_json::Value>,
+) -> Result<MCPServer, String> {
     let mut config = read_mcp_servers()?;
 
-    let server = config.servers.iter_mut()
+    let server = config
+        .servers
+        .iter_mut()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("MCP server with id '{}' not found", id))?;
 
@@ -721,16 +890,16 @@ pub struct HousekeepingResult {
 /// Delete a specific briefing by ID
 #[tauri::command]
 pub fn delete_briefing(id: i64) -> Result<bool, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
     db::delete_briefing(&conn, id)
 }
 
 /// Check if a briefing has any bookmarked cards
 #[tauri::command]
 pub fn briefing_has_bookmarks(briefing_id: i64) -> Result<bool, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
     db::briefing_has_bookmarks(&conn, briefing_id)
 }
 
@@ -738,13 +907,13 @@ pub fn briefing_has_bookmarks(briefing_id: i64) -> Result<bool, String> {
 #[tauri::command]
 pub fn run_housekeeping() -> Result<HousekeepingResult, String> {
     let settings = read_settings()?;
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
 
     let deleted_count = if let Some(days) = settings.retention_days {
         db::cleanup_old_briefings(&conn, days)?
     } else {
-        0  // retention_days = None means never delete
+        0 // retention_days = None means never delete
     };
 
     let remaining_count = db::count_briefings(&conn)?;
@@ -758,24 +927,24 @@ pub fn run_housekeeping() -> Result<HousekeepingResult, String> {
 /// Get count of briefings that would be deleted for a given retention period
 #[tauri::command]
 pub fn get_cleanup_preview(days: i32) -> Result<usize, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
     db::count_cleanup_candidates(&conn, days)
 }
 
 /// Get total count of briefings
 #[tauri::command]
 pub fn get_briefing_count() -> Result<usize, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
     db::count_briefings(&conn)
 }
 
 /// Get total count of cards across all briefings
 #[tauri::command]
 pub fn get_card_count() -> Result<usize, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
     db::count_cards(&conn)
 }
 
@@ -864,8 +1033,7 @@ fn write_api_key_to_file(api_key: &str) -> Result<(), String> {
 
     let content = lines.join("\n") + "\n";
 
-    std::fs::write(&env_path, content)
-        .map_err(|e| format!("Failed to write .env file: {}", e))?;
+    std::fs::write(&env_path, content).map_err(|e| format!("Failed to write .env file: {}", e))?;
 
     // Set restrictive permissions (owner read/write only)
     #[cfg(unix)]
@@ -949,59 +1117,104 @@ pub fn clear_api_key() -> Result<(), String> {
 }
 
 // ============================================================================
+// OpenAI API Key commands - For DALL-E image generation
+// Uses functions from claudius::config (lib.rs)
+// ============================================================================
+
+/// Get the OpenAI API key for use in image generation (returns full key, not masked)
+pub fn get_openai_api_key_for_image_gen() -> Option<String> {
+    claudius::read_openai_api_key()
+}
+
+#[tauri::command]
+pub fn get_openai_api_key() -> Result<Option<String>, String> {
+    // Return masked version with dots for security
+    if let Some(key) = claudius::read_openai_api_key() {
+        let dot_count = std::cmp::min(key.len(), 20);
+        let masked = "•".repeat(dot_count);
+        Ok(Some(masked))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn set_openai_api_key(api_key: String) -> Result<(), String> {
+    claudius::validate_openai_api_key(&api_key)?;
+    claudius::write_openai_api_key(&api_key)
+}
+
+#[tauri::command]
+pub fn has_openai_api_key() -> Result<bool, String> {
+    Ok(claudius::has_openai_api_key())
+}
+
+#[tauri::command]
+pub fn clear_openai_api_key() -> Result<(), String> {
+    claudius::delete_openai_api_key()
+}
+
+// ============================================================================
 // Additional briefing commands
 // ============================================================================
 
 #[tauri::command]
 pub fn get_todays_briefings() -> Result<Vec<Briefing>, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Use date prefix to match both "2025-12-08" and "2025-12-08T10:30:00" formats
     let today_prefix = format!("{}%", Local::now().format("%Y-%m-%d"));
 
     // Return ALL briefings for today (not just the most recent)
-    let mut stmt = conn.prepare(
-        "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, date, title, cards, research_time_ms, model_used, total_tokens
          FROM briefings
          WHERE date LIKE ?1
-         ORDER BY id DESC"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+         ORDER BY id DESC",
+        )
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-    let briefings = stmt.query_map([&today_prefix], |row| {
-        Ok(Briefing {
-            id: row.get(0)?,
-            date: row.get(1)?,
-            title: row.get(2)?,
-            cards: row.get(3)?,
-            research_time_ms: row.get(4)?,
-            model_used: row.get(5)?,
-            total_tokens: row.get(6)?,
+    let briefings = stmt
+        .query_map([&today_prefix], |row| {
+            Ok(Briefing {
+                id: row.get(0)?,
+                date: row.get(1)?,
+                title: row.get(2)?,
+                cards: row.get(3)?,
+                research_time_ms: row.get(4)?,
+                model_used: row.get(5)?,
+                total_tokens: row.get(6)?,
+            })
         })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to collect results: {}", e))?;
+        .map_err(|e| format!("Query failed: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect results: {}", e))?;
 
     Ok(briefings)
 }
 
 #[tauri::command]
 pub fn get_briefing_by_id(id: String) -> Result<Briefing, String> {
-    let id_num: i64 = id.parse()
+    let id_num: i64 = id
+        .parse()
         .map_err(|_| format!("Invalid briefing ID: {}", id))?;
     get_briefing(id_num)
 }
 
 #[tauri::command]
 pub fn submit_feedback(feedback: serde_json::Value) -> Result<(), String> {
-    let briefing_id = feedback.get("briefing_id")
+    let briefing_id = feedback
+        .get("briefing_id")
         .and_then(|v| v.as_str())
         .ok_or("Missing briefing_id")?;
 
-    let briefing_id_num: i64 = briefing_id.parse()
+    let briefing_id_num: i64 = briefing_id
+        .parse()
         .map_err(|_| format!("Invalid briefing_id: {}", briefing_id))?;
 
-    let feedback_type = feedback.get("feedback_type")
+    let feedback_type = feedback
+        .get("feedback_type")
         .and_then(|v| v.as_str())
         .ok_or("Missing feedback_type")?;
 
@@ -1012,7 +1225,8 @@ pub fn submit_feedback(feedback: serde_json::Value) -> Result<(), String> {
         _ => 3,
     };
 
-    let notes = feedback.get("notes")
+    let notes = feedback
+        .get("notes")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -1056,7 +1270,8 @@ pub async fn send_chat_message(
         &message,
         settings.enable_web_search,
         Some(&app),
-    ).await?;
+    )
+    .await?;
 
     Ok(response_message)
 }
@@ -1138,11 +1353,14 @@ pub fn hide_popover(app: tauri::AppHandle) {
 // Research log commands
 // ============================================================================
 
-use crate::research_log::{ResearchLogger, ResearchLogRecord};
+use crate::research_log::{ResearchLogRecord, ResearchLogger};
 
 /// Get recent research logs, optionally filtered by briefing ID.
 #[tauri::command]
-pub fn get_research_logs(briefing_id: Option<i64>, limit: Option<i64>) -> Result<Vec<ResearchLogRecord>, String> {
+pub fn get_research_logs(
+    briefing_id: Option<i64>,
+    limit: Option<i64>,
+) -> Result<Vec<ResearchLogRecord>, String> {
     let limit = limit.unwrap_or(100);
     ResearchLogger::get_logs(briefing_id, limit)
 }
@@ -1175,13 +1393,16 @@ pub fn cancel_research(app: tauri::AppHandle) -> Result<(), String> {
     research_state::cancel()?;
 
     // Emit the cancelled event
-    let _ = app.emit("research:cancelled", CancelledEvent {
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        reason: "User cancelled research".to_string(),
-        phase: state.current_phase.clone(),
-        topics_completed: 0, // We don't track this in the global state
-        total_topics: 0,
-    });
+    let _ = app.emit(
+        "research:cancelled",
+        CancelledEvent {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            reason: "User cancelled research".to_string(),
+            phase: state.current_phase.clone(),
+            topics_completed: 0, // We don't track this in the global state
+            total_topics: 0,
+        },
+    );
 
     tracing::info!("Research cancellation requested successfully");
     Ok(())
@@ -1197,10 +1418,13 @@ pub fn reset_research_state(app: tauri::AppHandle) -> Result<(), String> {
     research_state::reset();
 
     // Emit reset event so frontend can update
-    let _ = app.emit("research:reset", serde_json::json!({
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "reason": "Manual reset requested",
-    }));
+    let _ = app.emit(
+        "research:reset",
+        serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "reason": "Manual reset requested",
+        }),
+    );
 
     tracing::info!("Research state reset successfully");
     Ok(())
@@ -1212,9 +1436,9 @@ pub fn reset_research_state(app: tauri::AppHandle) -> Result<(), String> {
 pub fn get_research_status() -> Result<serde_json::Value, String> {
     let state = research_state::get_state();
 
-    let started_at = state.started_at.map(|t| {
-        chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
-    });
+    let started_at = state
+        .started_at
+        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
     Ok(serde_json::json!({
         "is_running": state.is_running,
@@ -1245,7 +1469,10 @@ pub fn get_cli_status() -> Result<serde_json::Value, String> {
     let is_valid = if is_installed {
         // Read the symlink target to verify it's our binary
         match std::fs::read_link(&install_path) {
-            Ok(target) => target.to_string_lossy().contains("Claudius") || target.to_string_lossy().contains("claudius"),
+            Ok(target) => {
+                target.to_string_lossy().contains("Claudius")
+                    || target.to_string_lossy().contains("claudius")
+            }
             Err(_) => false, // Could be a regular file, not a symlink
         }
     } else {
@@ -1269,7 +1496,8 @@ pub async fn install_cli() -> Result<CliInstallResult, String> {
             .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
         // The CLI binary should be next to the main binary in the MacOS folder
-        let cli_path = exe_path.parent()
+        let cli_path = exe_path
+            .parent()
             .ok_or("Failed to get parent directory")?
             .join("claudius");
 
@@ -1319,7 +1547,8 @@ pub async fn install_cli() -> Result<CliInstallResult, String> {
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
-        let cli_path = exe_path.parent()
+        let cli_path = exe_path
+            .parent()
             .ok_or("Failed to get parent directory")?
             .join("claudius");
 
@@ -1356,7 +1585,8 @@ pub async fn install_cli() -> Result<CliInstallResult, String> {
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
-        let cli_path = exe_path.parent()
+        let cli_path = exe_path
+            .parent()
             .ok_or("Failed to get parent directory")?
             .join("claudius.exe");
 
@@ -1368,8 +1598,8 @@ pub async fn install_cli() -> Result<CliInstallResult, String> {
         }
 
         // Create a .cmd wrapper in a location that's typically in PATH
-        let local_app_data = std::env::var("LOCALAPPDATA")
-            .map_err(|_| "Could not find LOCALAPPDATA")?;
+        let local_app_data =
+            std::env::var("LOCALAPPDATA").map_err(|_| "Could not find LOCALAPPDATA")?;
         let bin_dir = PathBuf::from(&local_app_data).join("Claudius").join("bin");
 
         std::fs::create_dir_all(&bin_dir)
@@ -1469,8 +1699,8 @@ pub async fn uninstall_cli() -> Result<CliInstallResult, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let local_app_data = std::env::var("LOCALAPPDATA")
-            .map_err(|_| "Could not find LOCALAPPDATA")?;
+        let local_app_data =
+            std::env::var("LOCALAPPDATA").map_err(|_| "Could not find LOCALAPPDATA")?;
         let cmd_path = PathBuf::from(&local_app_data)
             .join("Claudius")
             .join("bin")
@@ -1586,4 +1816,54 @@ pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), Str
             Err(e.to_string())
         }
     }
+}
+
+// ============================================================================
+// Print commands
+// ============================================================================
+
+/// Write HTML to a temp file and open it in the default browser for printing
+#[tauri::command]
+pub async fn print_card(html: String) -> Result<(), String> {
+    use std::io::Write;
+
+    // Create temp file
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join("claudius-print.html");
+
+    tracing::info!("Writing print content to {:?}", file_path);
+
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    file.write_all(html.as_bytes())
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    // Open in default browser
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &file_path.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    tracing::info!("Opened print preview in browser");
+    Ok(())
 }
