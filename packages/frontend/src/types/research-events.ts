@@ -49,7 +49,6 @@ export interface TopicCompletedEvent extends ResearchEvent {
   topic_name: string;
   topic_index: number;
   cards_generated: number;
-  tools_used: number;
 }
 
 // Event: Saving results to database

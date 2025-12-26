@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ResearchStartedEvent,
@@ -22,7 +22,6 @@ export interface ResearchProgressState {
   topicsCompleted: {
     topicName: string;
     cardsGenerated: number;
-    toolsUsed: number;
   }[];
   totalCards: number;
   error?: string;
@@ -51,18 +50,29 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
   const [isResearchRunning, setIsResearchRunning] = useState(false);
   const [progress, setProgress] = useState<ResearchProgressState>(initialProgressState);
 
+  // Store unlisten functions in a ref so cleanup can access them synchronously
+  const unlistenFns = useRef<UnlistenFn[]>([]);
+
   // Set up event listeners once at provider level
   useEffect(() => {
     let mounted = true;
-    const unlistenPromises: Promise<UnlistenFn>[] = [];
 
-    // Research started
-    unlistenPromises.push(
-      listen<ResearchStartedEvent>('research:started', (event) => {
-        if (!mounted) return;
+    // Helper to register listener and store unlisten function
+    const registerListener = async <T,>(
+      eventName: string,
+      handler: (event: { payload: T }) => void
+    ) => {
+      const unlisten = await listen<T>(eventName, (event) => {
+        if (mounted) handler(event);
+      });
+      unlistenFns.current.push(unlisten);
+    };
+
+    // Set up all listeners
+    (async () => {
+      // Research started
+      await registerListener<ResearchStartedEvent>('research:started', (event) => {
         console.log('[ResearchContext] research:started event:', event.payload);
-
-        // Reset to fresh state for new research session
         setProgress({
           isRunning: true,
           totalTopics: event.payload.total_topics,
@@ -72,13 +82,10 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
           topicsCompleted: [],
           totalCards: 0,
         });
-      })
-    );
+      });
 
-    // Topic started
-    unlistenPromises.push(
-      listen<TopicStartedEvent>('research:topic_started', (event) => {
-        if (!mounted) return;
+      // Topic started
+      await registerListener<TopicStartedEvent>('research:topic_started', (event) => {
         console.log('[ResearchContext] topic_started event:', event.payload);
         setProgress((prev) => ({
           ...prev,
@@ -86,13 +93,10 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
           currentTopicName: event.payload.topic_name,
           currentPhase: 'researching',
         }));
-      })
-    );
+      });
 
-    // Topic completed
-    unlistenPromises.push(
-      listen<TopicCompletedEvent>('research:topic_completed', (event) => {
-        if (!mounted) return;
+      // Topic completed
+      await registerListener<TopicCompletedEvent>('research:topic_completed', (event) => {
         console.log('[ResearchContext] topic_completed event:', event.payload);
         setProgress((prev) => ({
           ...prev,
@@ -101,68 +105,52 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
             {
               topicName: event.payload.topic_name,
               cardsGenerated: event.payload.cards_generated,
-              toolsUsed: event.payload.tools_used,
             },
           ],
         }));
-      })
-    );
+      });
 
-    // Synthesis started
-    unlistenPromises.push(
-      listen<SynthesisStartedEvent>('research:synthesis_started', (event) => {
-        if (!mounted) return;
+      // Synthesis started
+      await registerListener<SynthesisStartedEvent>('research:synthesis_started', (event) => {
         console.log('[ResearchContext] synthesis_started event:', event.payload);
         setProgress((prev) => ({
           ...prev,
           currentPhase: 'synthesizing',
           currentTopicName: 'Synthesizing research...',
         }));
-      })
-    );
+      });
 
-    // Synthesis completed
-    unlistenPromises.push(
-      listen<SynthesisCompletedEvent>('research:synthesis_completed', (event) => {
-        if (!mounted) return;
+      // Synthesis completed
+      await registerListener<SynthesisCompletedEvent>('research:synthesis_completed', (event) => {
         console.log('[ResearchContext] synthesis_completed event:', event.payload);
         setProgress((prev) => ({
           ...prev,
           totalCards: event.payload.cards_generated,
         }));
-      })
-    );
+      });
 
-    // Saving
-    unlistenPromises.push(
-      listen<SavingEvent>('research:saving', (event) => {
-        if (!mounted) return;
+      // Saving
+      await registerListener<SavingEvent>('research:saving', (event) => {
         console.log('[ResearchContext] saving event:', event.payload);
         setProgress((prev) => ({
           ...prev,
           currentPhase: 'saving',
           currentTopicName: 'Saving briefing...',
         }));
-      })
-    );
+      });
 
-    // Generating images
-    unlistenPromises.push(
-      listen<GeneratingImagesEvent>('research:generating_images', (event) => {
-        if (!mounted) return;
+      // Generating images
+      await registerListener<GeneratingImagesEvent>('research:generating_images', (event) => {
         console.log('[ResearchContext] generating_images event:', event.payload);
         setProgress((prev) => ({
           ...prev,
           currentPhase: 'generating_images',
           currentTopicName: `Generating images (${event.payload.total_cards} cards)...`,
         }));
-      })
-    );
+      });
 
-    // Completed
-    unlistenPromises.push(
-      listen<CompletedEvent>('research:completed', (event) => {
-        if (!mounted) return;
+      // Completed
+      await registerListener<CompletedEvent>('research:completed', (event) => {
         console.log('[ResearchContext] completed event:', event.payload);
         setProgress((prev) => ({
           ...prev,
@@ -170,13 +158,10 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
           currentPhase: 'complete',
           totalCards: event.payload.total_cards,
         }));
-      })
-    );
+      });
 
-    // Cancelled
-    unlistenPromises.push(
-      listen<CancelledEvent>('research:cancelled', (event) => {
-        if (!mounted) return;
+      // Cancelled
+      await registerListener<CancelledEvent>('research:cancelled', (event) => {
         console.log('[ResearchContext] cancelled event:', event.payload);
         setProgress((prev) => ({
           ...prev,
@@ -184,24 +169,20 @@ export function ResearchProvider({ children }: { children: ReactNode }) {
           currentPhase: 'complete',
           error: `Research cancelled: ${event.payload.reason}`,
         }));
-      })
-    );
+      });
 
-    // Reset
-    unlistenPromises.push(
-      listen<ResetEvent>('research:reset', () => {
-        if (!mounted) return;
+      // Reset
+      await registerListener<ResetEvent>('research:reset', () => {
         console.log('[ResearchContext] reset event');
         setProgress(initialProgressState);
-      })
-    );
+      });
+    })();
 
-    // Cleanup listeners on unmount
+    // Cleanup listeners on unmount - synchronously call stored unlisten functions
     return () => {
       mounted = false;
-      Promise.all(unlistenPromises).then((unlisteners) => {
-        unlisteners.forEach((unlisten) => unlisten());
-      });
+      unlistenFns.current.forEach((unlisten) => unlisten());
+      unlistenFns.current = [];
     };
   }, []);
 

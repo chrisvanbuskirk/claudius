@@ -126,7 +126,6 @@ pub struct TopicCompletedEvent {
     topic_name: String,
     topic_index: usize,
     cards_generated: usize,
-    tools_used: usize,
 }
 
 /// Event emitted when saving to database
@@ -1194,7 +1193,6 @@ impl ResearchAgent {
                         topic_name: topic.clone(),
                         topic_index: i,
                         cards_generated: 0, // Will be known after synthesis
-                        tools_used: 0,      // TODO: track tool usage count
                     },
                 );
             }
