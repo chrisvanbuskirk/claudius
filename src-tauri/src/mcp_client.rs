@@ -107,8 +107,21 @@ impl McpClient {
         })
     }
 
-    /// Connect to a single MCP server.
+    /// Connect to a single MCP server with timeout.
     async fn connect_to_server(server: &McpServerConfig) -> Result<McpConnection, String> {
+        // Wrap the entire connection process in a timeout
+        let server_name = server.name.clone();
+        match tokio::time::timeout(
+            Duration::from_secs(30), // 30 second timeout per server
+            Self::connect_to_server_inner(server)
+        ).await {
+            Ok(result) => result,
+            Err(_) => Err(format!("MCP server '{}' connection timed out after 30 seconds", server_name)),
+        }
+    }
+
+    /// Inner connection logic (called with timeout wrapper).
+    async fn connect_to_server_inner(server: &McpServerConfig) -> Result<McpConnection, String> {
         // Extract command and args from config
         let command = server.config.get("command")
             .and_then(|v| v.as_str())

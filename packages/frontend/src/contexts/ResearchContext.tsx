@@ -20,7 +20,7 @@ import type {
 
 // Phase-specific timeouts (in milliseconds)
 const PHASE_TIMEOUTS: Record<string, number> = {
-  starting: 30_000,       // 30 seconds to start
+  starting: 90_000,       // 90 seconds to start (MCP servers may need to initialize)
   researching: 180_000,   // 3 minutes per topic (will reset on each topic)
   synthesizing: 120_000,  // 2 minutes for synthesis
   saving: 30_000,         // 30 seconds to save
