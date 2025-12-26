@@ -42,7 +42,7 @@ pub struct BriefingCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_style: Option<String>,  // Legacy field, not used with DALL-E
+    pub image_style: Option<String>, // Legacy field, not used with DALL-E
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_path: Option<String>,
 }
@@ -115,7 +115,7 @@ pub struct ToolExecutedEvent {
     topic_name: String,
     tool_name: String,
     tool_type: String, // "mcp" | "brave_search" | "builtin"
-    status: String, // "success" | "error"
+    status: String,    // "success" | "error"
     error: Option<String>,
 }
 
@@ -351,14 +351,26 @@ async fn execute_tool(
 ) -> Result<String, String> {
     match tool_name {
         "get_github_activity" => {
-            let owner = input.get("owner").and_then(|v| v.as_str()).ok_or("Missing owner")?;
-            let repo = input.get("repo").and_then(|v| v.as_str()).ok_or("Missing repo")?;
-            let activity_type = input.get("activity_type").and_then(|v| v.as_str()).ok_or("Missing activity_type")?;
+            let owner = input
+                .get("owner")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing owner")?;
+            let repo = input
+                .get("repo")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing repo")?;
+            let activity_type = input
+                .get("activity_type")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing activity_type")?;
 
             execute_github_activity(client, owner, repo, activity_type, github_token).await
         }
         "fetch_webpage" => {
-            let url = input.get("url").and_then(|v| v.as_str()).ok_or("Missing url")?;
+            let url = input
+                .get("url")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing url")?;
             execute_fetch_webpage(client, url).await
         }
         _ => Err(format!("Unknown tool: {}", tool_name)),
@@ -374,10 +386,22 @@ async fn execute_github_activity(
     github_token: Option<&str>,
 ) -> Result<String, String> {
     let endpoint = match activity_type {
-        "commits" => format!("https://api.github.com/repos/{}/{}/commits?per_page=10", owner, repo),
-        "pulls" => format!("https://api.github.com/repos/{}/{}/pulls?state=all&per_page=10", owner, repo),
-        "issues" => format!("https://api.github.com/repos/{}/{}/issues?state=all&per_page=10", owner, repo),
-        "releases" => format!("https://api.github.com/repos/{}/{}/releases?per_page=5", owner, repo),
+        "commits" => format!(
+            "https://api.github.com/repos/{}/{}/commits?per_page=10",
+            owner, repo
+        ),
+        "pulls" => format!(
+            "https://api.github.com/repos/{}/{}/pulls?state=all&per_page=10",
+            owner, repo
+        ),
+        "issues" => format!(
+            "https://api.github.com/repos/{}/{}/issues?state=all&per_page=10",
+            owner, repo
+        ),
+        "releases" => format!(
+            "https://api.github.com/repos/{}/{}/releases?per_page=5",
+            owner, repo
+        ),
         _ => return Err(format!("Unknown activity type: {}", activity_type)),
     };
 
@@ -427,7 +451,13 @@ fn format_github_commits(data: &serde_json::Value) -> String {
                 let message = c.get("commit")?.get("message")?.as_str()?;
                 let author = c.get("commit")?.get("author")?.get("name")?.as_str()?;
                 let date = c.get("commit")?.get("author")?.get("date")?.as_str()?;
-                Some(format!("- {} by {} ({}): {}", sha, author, &date[..10], message.lines().next().unwrap_or("")))
+                Some(format!(
+                    "- {} by {} ({}): {}",
+                    sha,
+                    author,
+                    &date[..10],
+                    message.lines().next().unwrap_or("")
+                ))
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -518,7 +548,10 @@ async fn execute_fetch_webpage(client: &Client, url: &str) -> Result<String, Str
     let char_count = text.chars().count();
     if char_count > max_chars {
         let truncated: String = text.chars().take(max_chars).collect();
-        Ok(format!("{}...\n\n[Content truncated, {} total characters]", truncated, char_count))
+        Ok(format!(
+            "{}...\n\n[Content truncated, {} total characters]",
+            truncated, char_count
+        ))
     } else {
         Ok(text)
     }
@@ -582,14 +615,20 @@ pub struct ResearchAgent {
 
 impl ResearchAgent {
     /// Create a new research agent.
-    pub fn new(api_key: String, model: Option<String>, enable_web_search: bool, research_mode: String) -> Self {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        enable_web_search: bool,
+        research_mode: String,
+    ) -> Self {
         // Try to read GitHub token from environment or config
         let github_token = std::env::var("GITHUB_TOKEN").ok().or_else(|| {
             // Try to read from ~/.claudius/.env
             let home = dirs::home_dir()?;
             let env_path = home.join(".claudius").join(".env");
             let content = std::fs::read_to_string(env_path).ok()?;
-            content.lines()
+            content
+                .lines()
                 .find(|line| line.starts_with("GITHUB_TOKEN="))
                 .map(|line| line.trim_start_matches("GITHUB_TOKEN=").trim().to_string())
         });
@@ -601,7 +640,9 @@ impl ResearchAgent {
             .collect();
 
         if enable_web_search {
-            tracing::info!("Web search enabled - Claude will use built-in web search ($0.01/search)");
+            tracing::info!(
+                "Web search enabled - Claude will use built-in web search ($0.01/search)"
+            );
         }
 
         Self {
@@ -649,13 +690,16 @@ impl ResearchAgent {
             if token.load(Ordering::Relaxed) {
                 // Emit cancelled event
                 if let Some(app) = app_handle {
-                    let _ = app.emit("research:cancelled", CancelledEvent {
-                        timestamp: get_timestamp(),
-                        reason: "User cancelled research".to_string(),
-                        phase: phase.to_string(),
-                        topics_completed,
-                        total_topics,
-                    });
+                    let _ = app.emit(
+                        "research:cancelled",
+                        CancelledEvent {
+                            timestamp: get_timestamp(),
+                            reason: "User cancelled research".to_string(),
+                            phase: phase.to_string(),
+                            topics_completed,
+                            total_topics,
+                        },
+                    );
                 }
                 return Err("Research cancelled by user".to_string());
             }
@@ -699,36 +743,95 @@ impl ResearchAgent {
         }
     }
 
-    /// Get all available tools (built-in + MCP).
+    /// Get all available tools (built-in + MCP), filtered by research_mode.
     fn get_all_tools(&self) -> Vec<Tool> {
-        let mut tools = get_research_tools();
+        let mut tools = Vec::new();
 
-        // Add MCP tools
+        // Firecrawl tool names to filter
+        let firecrawl_tools = [
+            "firecrawl_search",
+            "firecrawl_scrape",
+            "firecrawl_extract",
+            "firecrawl_map",
+            "firecrawl_crawl",
+        ];
+        // Standard search tools to exclude in firecrawl mode
+        let standard_search_tools = [
+            "brave_search",
+            "brave_web_search",
+            "perplexity_ask",
+            "fetch_webpage",
+        ];
+
+        // Add built-in tools (filtered by mode)
+        for tool in get_research_tools() {
+            // In firecrawl mode, exclude the built-in fetch_webpage
+            if self.research_mode == "firecrawl"
+                && standard_search_tools.contains(&tool.name.as_str())
+            {
+                tracing::debug!("Excluding built-in tool '{}' in firecrawl mode", tool.name);
+                continue;
+            }
+            tools.push(tool);
+        }
+
+        // Add MCP tools (filtered by mode)
         if let Some(ref mcp_client) = self.mcp_client {
             for mcp_tool in mcp_client.get_all_tools() {
+                let tool_name = &mcp_tool.tool.name;
+
+                // Filter based on research mode
+                let dominated_by_firecrawl =
+                    firecrawl_tools.iter().any(|ft| tool_name.contains(ft));
+                let is_standard_search = standard_search_tools
+                    .iter()
+                    .any(|st| tool_name.contains(st));
+
+                if self.research_mode == "firecrawl" {
+                    // In firecrawl mode, exclude standard search tools
+                    if is_standard_search {
+                        tracing::debug!("Excluding tool '{}' in firecrawl mode", tool_name);
+                        continue;
+                    }
+                } else {
+                    // In standard mode, exclude firecrawl tools
+                    if dominated_by_firecrawl {
+                        tracing::debug!("Excluding tool '{}' in standard mode", tool_name);
+                        continue;
+                    }
+                }
+
                 tools.push(Tool {
                     name: mcp_tool.tool.name.clone(),
-                    description: mcp_tool.tool.description.clone().unwrap_or_else(||
+                    description: mcp_tool.tool.description.clone().unwrap_or_else(|| {
                         format!("Tool from {} MCP server", mcp_tool.server_name)
-                    ),
+                    }),
                     input_schema: mcp_tool.tool.input_schema.clone(),
                 });
             }
         }
 
+        tracing::info!(
+            "Research mode '{}': {} tools available",
+            self.research_mode,
+            tools.len()
+        );
         tools
     }
 
     /// Get all tools as JSON values for API request, including web_search if enabled.
     fn get_tools_json(&self) -> Vec<serde_json::Value> {
         let tools = self.get_all_tools();
-        let mut tools_json: Vec<serde_json::Value> = tools.iter().map(|t| {
-            serde_json::json!({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.input_schema
+        let mut tools_json: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema
+                })
             })
-        }).collect();
+            .collect();
 
         // Add Claude's built-in web search tool if enabled
         if self.enable_web_search {
@@ -765,18 +868,261 @@ impl ResearchAgent {
 
         // Emit research:started event and update phase
         research_state::set_phase("Starting research...");
+
+        // Debug logging to file
+        let log_path = dirs::home_dir()
+            .unwrap()
+            .join(".claudius")
+            .join("research-debug.log");
+        let _ = std::fs::write(
+            &log_path,
+            format!("{}: RESEARCH STARTED\n", chrono::Local::now()),
+        );
+
         if let Some(app) = &app_handle {
-            let _ = app.emit("research:started", ResearchStartedEvent {
-                timestamp: get_timestamp(),
-                total_topics: topics.len(),
-                topics: topics.clone(),
-            });
+            let _ = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&log_path)
+                .and_then(|mut f| {
+                    std::io::Write::write_all(
+                        &mut f,
+                        format!(
+                            "{}: Emitting research:started event\n",
+                            chrono::Local::now()
+                        )
+                        .as_bytes(),
+                    )
+                });
+            let _ = app.emit(
+                "research:started",
+                ResearchStartedEvent {
+                    timestamp: get_timestamp(),
+                    total_topics: topics.len(),
+                    topics: topics.clone(),
+                },
+            );
         }
 
-        // Initialize MCP connections (non-blocking, continues without MCP if it fails)
-        if let Err(e) = self.init_mcp().await {
-            warn!("MCP initialization failed (continuing without MCP): {}", e);
+        // Initialize MCP connections in a separate thread to avoid blocking Tauri's async runtime.
+        // The MCP client uses blocking I/O (std::io::BufReader::read_line) which would block
+        // the entire async runtime if run directly. Using std::thread::spawn ensures the blocking
+        // I/O runs on a completely separate OS thread.
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&log_path)
+            .and_then(|mut f| {
+                std::io::Write::write_all(
+                    &mut f,
+                    format!(
+                        "{}: STARTING MCP INIT (std::thread)\n",
+                        chrono::Local::now()
+                    )
+                    .as_bytes(),
+                )
+            });
+
+        // Use a oneshot channel to get the result from the thread
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let log_path_clone = log_path.clone();
+
+        std::thread::spawn(move || {
+            let _ = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&log_path_clone)
+                .and_then(|mut f| {
+                    std::io::Write::write_all(
+                        &mut f,
+                        format!("{}: MCP thread started\n", chrono::Local::now()).as_bytes(),
+                    )
+                });
+
+            // Create a new tokio runtime for this thread
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let _ = tx.send(Err(format!("Failed to create runtime: {}", e)));
+                    return;
+                }
+            };
+
+            let result = rt.block_on(async {
+                let _ = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&log_path_clone)
+                    .and_then(|mut f| {
+                        std::io::Write::write_all(
+                            &mut f,
+                            format!("{}: Loading MCP servers config\n", chrono::Local::now())
+                                .as_bytes(),
+                        )
+                    });
+
+                match load_mcp_servers() {
+                    Ok(servers) => {
+                        let enabled_count = servers.iter().filter(|s| s.enabled).count();
+                        let _ = std::fs::OpenOptions::new()
+                            .append(true)
+                            .open(&log_path_clone)
+                            .and_then(|mut f| {
+                                std::io::Write::write_all(
+                                    &mut f,
+                                    format!(
+                                        "{}: Found {} enabled MCP servers\n",
+                                        chrono::Local::now(),
+                                        enabled_count
+                                    )
+                                    .as_bytes(),
+                                )
+                            });
+
+                        if enabled_count == 0 {
+                            return Ok(None);
+                        }
+
+                        let _ = std::fs::OpenOptions::new()
+                            .append(true)
+                            .open(&log_path_clone)
+                            .and_then(|mut f| {
+                                std::io::Write::write_all(
+                                    &mut f,
+                                    format!(
+                                        "{}: Connecting to MCP servers...\n",
+                                        chrono::Local::now()
+                                    )
+                                    .as_bytes(),
+                                )
+                            });
+
+                        match McpClient::connect(servers).await {
+                            Ok(client) => {
+                                let _ = std::fs::OpenOptions::new()
+                                    .append(true)
+                                    .open(&log_path_clone)
+                                    .and_then(|mut f| {
+                                        std::io::Write::write_all(
+                                            &mut f,
+                                            format!(
+                                                "{}: MCP connect returned {} tools\n",
+                                                chrono::Local::now(),
+                                                client.tool_count()
+                                            )
+                                            .as_bytes(),
+                                        )
+                                    });
+                                Ok(Some(client))
+                            }
+                            Err(e) => {
+                                let _ = std::fs::OpenOptions::new()
+                                    .append(true)
+                                    .open(&log_path_clone)
+                                    .and_then(|mut f| {
+                                        std::io::Write::write_all(
+                                            &mut f,
+                                            format!(
+                                                "{}: MCP connect error: {}\n",
+                                                chrono::Local::now(),
+                                                e
+                                            )
+                                            .as_bytes(),
+                                        )
+                                    });
+                                Err(e)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = std::fs::OpenOptions::new()
+                            .append(true)
+                            .open(&log_path_clone)
+                            .and_then(|mut f| {
+                                std::io::Write::write_all(
+                                    &mut f,
+                                    format!(
+                                        "{}: Failed to load MCP config: {}\n",
+                                        chrono::Local::now(),
+                                        e
+                                    )
+                                    .as_bytes(),
+                                )
+                            });
+                        Err(e)
+                    }
+                }
+            });
+
+            let _ = tx.send(result);
+        });
+
+        // Wait for the MCP init thread with a timeout
+        let mcp_result = match tokio::time::timeout(Duration::from_secs(120), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err("MCP init channel closed unexpectedly".to_string()),
+            Err(_) => Err("MCP initialization timed out after 120 seconds".to_string()),
+        };
+
+        match mcp_result {
+            Ok(Some(client)) => {
+                info!(
+                    "MCP connected: {} servers, {} tools",
+                    client.server_count(),
+                    client.tool_count()
+                );
+                let _ = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&log_path)
+                    .and_then(|mut f| {
+                        std::io::Write::write_all(
+                            &mut f,
+                            format!(
+                                "{}: MCP INIT SUCCESS - {} tools\n",
+                                chrono::Local::now(),
+                                client.tool_count()
+                            )
+                            .as_bytes(),
+                        )
+                    });
+                self.mcp_client = Some(client);
+            }
+            Ok(None) => {
+                info!("No MCP servers enabled");
+                let _ = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&log_path)
+                    .and_then(|mut f| {
+                        std::io::Write::write_all(
+                            &mut f,
+                            format!("{}: NO MCP SERVERS ENABLED\n", chrono::Local::now())
+                                .as_bytes(),
+                        )
+                    });
+            }
+            Err(e) => {
+                warn!("MCP initialization failed: {}", e);
+                let _ = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&log_path)
+                    .and_then(|mut f| {
+                        std::io::Write::write_all(
+                            &mut f,
+                            format!("{}: MCP INIT FAILED: {}\n", chrono::Local::now(), e)
+                                .as_bytes(),
+                        )
+                    });
+            }
         }
+
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&log_path)
+            .and_then(|mut f| {
+                std::io::Write::write_all(
+                    &mut f,
+                    format!("{}: MCP INIT COMPLETE\n", chrono::Local::now()).as_bytes(),
+                )
+            });
 
         // Step 1: Research each topic with tool support
         let mut research_content = String::new();
@@ -796,19 +1142,35 @@ impl ResearchAgent {
             info!("Researching topic {}/{}: {}", i + 1, topics.len(), topic);
 
             // Update phase and emit research:topic_started event
-            research_state::set_phase(&format!("Researching topic {}/{}: {}", i + 1, topics.len(), topic));
+            research_state::set_phase(&format!(
+                "Researching topic {}/{}: {}",
+                i + 1,
+                topics.len(),
+                topic
+            ));
             if let Some(app) = &app_handle {
-                let _ = app.emit("research:topic_started", TopicStartedEvent {
-                    timestamp: get_timestamp(),
-                    topic_name: topic.clone(),
-                    topic_index: i,
-                    total_topics: topics.len(),
-                });
+                let _ = app.emit(
+                    "research:topic_started",
+                    TopicStartedEvent {
+                        timestamp: get_timestamp(),
+                        topic_name: topic.clone(),
+                        topic_index: i,
+                        total_topics: topics.len(),
+                    },
+                );
             }
 
-            match self.research_topic_with_tools(topic, app_handle.as_ref(), i).await {
+            match self
+                .research_topic_with_tools(topic, app_handle.as_ref(), i)
+                .await
+            {
                 Ok((content, tokens)) => {
-                    research_content.push_str(&format!("\n## Topic {}: {}\n{}\n", i + 1, topic, content));
+                    research_content.push_str(&format!(
+                        "\n## Topic {}: {}\n{}\n",
+                        i + 1,
+                        topic,
+                        content
+                    ));
                     total_tokens += tokens;
                     topic_stats.push((topic.clone(), 0)); // Will be updated after synthesis
                 }
@@ -816,7 +1178,8 @@ impl ResearchAgent {
                     error!("Error researching topic '{}': {}", topic, e);
                     research_content.push_str(&format!(
                         "\n## Topic {}: {}\nError: Could not research this topic.\n",
-                        i + 1, topic
+                        i + 1,
+                        topic
                     ));
                     topic_stats.push((topic.clone(), 0));
                 }
@@ -824,13 +1187,16 @@ impl ResearchAgent {
 
             // Emit research:topic_completed event
             if let Some(app) = &app_handle {
-                let _ = app.emit("research:topic_completed", TopicCompletedEvent {
-                    timestamp: get_timestamp(),
-                    topic_name: topic.clone(),
-                    topic_index: i,
-                    cards_generated: 0, // Will be known after synthesis
-                    tools_used: 0, // TODO: track tool usage count
-                });
+                let _ = app.emit(
+                    "research:topic_completed",
+                    TopicCompletedEvent {
+                        timestamp: get_timestamp(),
+                        topic_name: topic.clone(),
+                        topic_index: i,
+                        cards_generated: 0, // Will be known after synthesis
+                        tools_used: 0,      // TODO: track tool usage count
+                    },
+                );
             }
 
             topics_completed_count += 1;
@@ -845,8 +1211,18 @@ impl ResearchAgent {
         )?;
 
         // Step 2: Synthesize into briefing cards
-        info!("Synthesizing research into briefing cards (condensed: {})", condense_briefings);
-        let (cards, synthesis_tokens) = self.synthesize_briefing(&research_content, app_handle.as_ref(), condense_briefings, past_cards_context.as_deref()).await
+        info!(
+            "Synthesizing research into briefing cards (condensed: {})",
+            condense_briefings
+        );
+        let (cards, synthesis_tokens) = self
+            .synthesize_briefing(
+                &research_content,
+                app_handle.as_ref(),
+                condense_briefings,
+                past_cards_context.as_deref(),
+            )
+            .await
             .map_err(|e| {
                 let _ = ResearchLogger::log_api_error("synthesis", &e);
                 e.message
@@ -857,7 +1233,10 @@ impl ResearchAgent {
 
         let result = ResearchResult {
             date: chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
-            title: format!("Daily Briefing - {}", chrono::Local::now().format("%B %d, %Y")),
+            title: format!(
+                "Daily Briefing - {}",
+                chrono::Local::now().format("%B %d, %Y")
+            ),
             cards,
             research_time_ms,
             model_used: self.model.clone(),
@@ -892,7 +1271,8 @@ impl ResearchAgent {
     ) -> Result<(String, u32), String> {
         // Build dynamic system prompt based on available tools
         let tools = self.get_all_tools();
-        let tool_descriptions: Vec<String> = tools.iter()
+        let tool_descriptions: Vec<String> = tools
+            .iter()
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
@@ -997,7 +1377,10 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
             iterations += 1;
             if iterations > MAX_TOOL_ITERATIONS {
-                warn!("Reached max tool iterations ({}), stopping", MAX_TOOL_ITERATIONS);
+                warn!(
+                    "Reached max tool iterations ({}), stopping",
+                    MAX_TOOL_ITERATIONS
+                );
                 break;
             }
 
@@ -1009,7 +1392,10 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 system: Some(system_prompt.to_string()),
             };
 
-            info!("Calling Claude API (iteration {}/{}) for topic: {}", iterations, MAX_TOOL_ITERATIONS, topic);
+            info!(
+                "Calling Claude API (iteration {}/{}) for topic: {}",
+                iterations, MAX_TOOL_ITERATIONS, topic
+            );
             let api_start = Instant::now();
             let response = match self.send_request(&request).await {
                 Ok(r) => r,
@@ -1023,51 +1409,69 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             let tokens = response.usage.input_tokens + response.usage.output_tokens;
             total_tokens += tokens;
 
-            info!("Claude API responded in {}ms ({} tokens, stop_reason: {:?})",
-                api_duration, tokens, response.stop_reason);
+            info!(
+                "Claude API responded in {}ms ({} tokens, stop_reason: {:?})",
+                api_duration, tokens, response.stop_reason
+            );
 
             // Log successful API request
             let _ = ResearchLogger::log_api_request(topic, tokens as i64, api_duration);
 
             // Check for web_search usage in response (server_tool_use blocks)
             // Claude's built-in web_search returns server_tool_use and web_search_tool_result blocks
-            let web_search_uses: Vec<_> = response.content.iter()
-                .filter(|c| c.content_type == "server_tool_use" || c.content_type == "web_search_tool_result")
+            let web_search_uses: Vec<_> = response
+                .content
+                .iter()
+                .filter(|c| {
+                    c.content_type == "server_tool_use"
+                        || c.content_type == "web_search_tool_result"
+                })
                 .collect();
 
             if !web_search_uses.is_empty() {
                 for block in &web_search_uses {
                     if block.content_type == "server_tool_use" {
                         // Extract search query from input if available
-                        let search_query = block.input.as_ref()
+                        let search_query = block
+                            .input
+                            .as_ref()
                             .and_then(|i| i.get("query"))
                             .and_then(|q| q.as_str())
                             .map(|s| s.to_string());
 
                         if let Some(name) = &block.name {
-                            info!("🔍 Web search initiated: tool={}, query={:?}", name, search_query);
+                            info!(
+                                "🔍 Web search initiated: tool={}, query={:?}",
+                                name, search_query
+                            );
                         }
 
                         // Emit web search started event
                         if let Some(app) = app_handle {
-                            let _ = app.emit("research:web_search", WebSearchEvent {
-                                timestamp: get_timestamp(),
-                                topic_name: topic.to_string(),
-                                search_query: search_query.clone(),
-                                status: "started".to_string(),
-                            });
+                            let _ = app.emit(
+                                "research:web_search",
+                                WebSearchEvent {
+                                    timestamp: get_timestamp(),
+                                    topic_name: topic.to_string(),
+                                    search_query: search_query.clone(),
+                                    status: "started".to_string(),
+                                },
+                            );
                         }
                     } else if block.content_type == "web_search_tool_result" {
                         info!("🔍 Web search completed for topic: {}", topic);
 
                         // Emit web search completed event
                         if let Some(app) = app_handle {
-                            let _ = app.emit("research:web_search", WebSearchEvent {
-                                timestamp: get_timestamp(),
-                                topic_name: topic.to_string(),
-                                search_query: None,
-                                status: "completed".to_string(),
-                            });
+                            let _ = app.emit(
+                                "research:web_search",
+                                WebSearchEvent {
+                                    timestamp: get_timestamp(),
+                                    topic_name: topic.to_string(),
+                                    search_query: None,
+                                    status: "completed".to_string(),
+                                },
+                            );
                         }
 
                         // Log the web search tool result
@@ -1083,14 +1487,21 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             }
 
             // Check if Claude wants to use tools
-            let tool_uses: Vec<_> = response.content.iter()
+            let tool_uses: Vec<_> = response
+                .content
+                .iter()
                 .filter(|c| c.content_type == "tool_use")
                 .collect();
 
             if tool_uses.is_empty() || response.stop_reason.as_deref() == Some("end_turn") {
-                info!("No more tool calls requested - research complete for topic: {}", topic);
+                info!(
+                    "No more tool calls requested - research complete for topic: {}",
+                    topic
+                );
                 // No more tool calls, extract the text response
-                let text_content: String = response.content.iter()
+                let text_content: String = response
+                    .content
+                    .iter()
                     .filter_map(|c| {
                         if c.content_type == "text" {
                             c.text.clone()
@@ -1106,7 +1517,9 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
             // Build assistant message with tool uses
             // Filter out empty text blocks - Claude API rejects "text content blocks must be non-empty"
-            let assistant_blocks: Vec<ContentBlock> = response.content.iter()
+            let assistant_blocks: Vec<ContentBlock> = response
+                .content
+                .iter()
                 .filter_map(|c| {
                     if c.content_type == "text" {
                         let text = c.text.clone().unwrap_or_default();
@@ -1154,7 +1567,8 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 let mcp_server_name: Option<String> = if is_mcp_tool {
                     // Find which server this tool belongs to
                     self.mcp_client.as_ref().and_then(|client| {
-                        client.get_all_tools()
+                        client
+                            .get_all_tools()
                             .into_iter()
                             .find(|t| t.tool.name == tool_name)
                             .map(|t| t.server_name)
@@ -1170,10 +1584,12 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                         tool_name,
                         tool_input,
                         self.github_token.as_deref(),
-                    ).await
+                    )
+                    .await
                 } else if let Some(ref mut mcp_client) = self.mcp_client {
                     // Execute MCP tool
-                    mcp_client.call_tool(tool_name, tool_input.clone())
+                    mcp_client
+                        .call_tool(tool_name, tool_input.clone())
                         .map(|v| {
                             if let Some(s) = v.as_str() {
                                 s.to_string()
@@ -1189,8 +1605,12 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
 
                 let (content, is_error) = match result {
                     Ok(output) => {
-                        info!("Tool {} completed in {}ms (output: {} chars)",
-                            tool_name, tool_duration, output.len());
+                        info!(
+                            "Tool {} completed in {}ms (output: {} chars)",
+                            tool_name,
+                            tool_duration,
+                            output.len()
+                        );
                         // Log successful tool call - use MCP logging if it's an MCP tool
                         if is_mcp_tool {
                             let server_name = mcp_server_name.as_deref().unwrap_or("unknown");
@@ -1253,11 +1673,17 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
         }
 
         // If we exit the loop due to max iterations, extract any text we have
-        Ok(("Research completed (max iterations reached)".to_string(), total_tokens))
+        Ok((
+            "Research completed (max iterations reached)".to_string(),
+            total_tokens,
+        ))
     }
 
     /// Send a request to the Anthropic API.
-    async fn send_request(&self, request: &AnthropicRequest) -> Result<AnthropicResponse, ResearchError> {
+    async fn send_request(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, ResearchError> {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
@@ -1268,7 +1694,10 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             .send()
             .await
             .map_err(|e| {
-                let err = ResearchError::new(ErrorCode::NetworkError, format!("HTTP request failed: {}", e));
+                let err = ResearchError::new(
+                    ErrorCode::NetworkError,
+                    format!("HTTP request failed: {}", e),
+                );
                 error!("Network error: {}", e);
                 err
             })?;
@@ -1279,7 +1708,10 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             let err = parse_api_error(status, &body);
 
             // Log the error
-            error!("API error {}: {} (code: {:?})", status, err.message, err.code);
+            error!(
+                "API error {}: {} (code: {:?})",
+                status, err.message, err.code
+            );
             if err.requires_user_action {
                 error!("USER ACTION REQUIRED: {}", err.user_message);
             }
@@ -1287,12 +1719,12 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
             return Err(err);
         }
 
-        response
-            .json()
-            .await
-            .map_err(|e| {
-                ResearchError::new(ErrorCode::ParseError, format!("Failed to parse response: {}", e))
-            })
+        response.json().await.map_err(|e| {
+            ResearchError::new(
+                ErrorCode::ParseError,
+                format!("Failed to parse response: {}", e),
+            )
+        })
     }
 
     /// Synthesize research results into briefing cards.
@@ -1330,6 +1762,9 @@ When generating cards, avoid creating cards that duplicate these previously cove
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize ALL the following research into ONE comprehensive briefing card that tells a cohesive story.
+
+CRITICAL: ONLY include information from the RESEARCH CONTENT below.
+Do NOT add topics from the deduplication list - that list is ONLY to help you avoid repeating old content.
 {}
 {}
 
@@ -1381,14 +1816,19 @@ Return the JSON response now:"#,
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize the following research results into clear, actionable briefing cards.
+
+CRITICAL: ONLY create cards for topics that appear in the RESEARCH CONTENT below. 
+Do NOT create cards for topics mentioned in the deduplication list - that list is ONLY to help you avoid repeating old content.
+If the research content only covers one topic, create cards ONLY for that one topic.
 {}
 {}
 
 Generate briefing cards following these guidelines:
 
-1. **Relevance**: Only include cards with medium or higher relevance
-2. **Limit**: Maximum 10 cards total
-3. **Priority**: Prioritize timely, actionable information
+1. **ONLY use topics from the research content** - never invent or add topics not researched
+2. **Relevance**: Only include cards with medium or higher relevance
+3. **Limit**: Maximum 10 cards total
+4. **Priority**: Prioritize timely, actionable information
 
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
@@ -1444,40 +1884,57 @@ Return the JSON response now:"#,
         // Update phase and emit synthesis:started event
         research_state::set_phase("Synthesizing briefing cards...");
         if let Some(app) = app_handle {
-            let _ = app.emit("research:synthesis_started", SynthesisStartedEvent {
-                timestamp: get_timestamp(),
-                research_content_length: research_content.len(),
-            });
+            let _ = app.emit(
+                "research:synthesis_started",
+                SynthesisStartedEvent {
+                    timestamp: get_timestamp(),
+                    research_content_length: research_content.len(),
+                },
+            );
         }
 
-        info!("Calling Claude API for synthesis (research content: {} chars)", research_content.len());
+        info!(
+            "Calling Claude API for synthesis (research content: {} chars)",
+            research_content.len()
+        );
         let synthesis_start = Instant::now();
         let response = self.send_request(&request).await?;
         let synthesis_duration = synthesis_start.elapsed().as_millis();
 
-        let content = response.content.iter()
+        let content = response
+            .content
+            .iter()
             .filter_map(|c| c.text.clone())
             .collect::<Vec<_>>()
             .join("\n");
 
         let tokens = response.usage.input_tokens + response.usage.output_tokens;
 
-        info!("Synthesis API responded in {}ms ({} tokens)", synthesis_duration, tokens);
+        info!(
+            "Synthesis API responded in {}ms ({} tokens)",
+            synthesis_duration, tokens
+        );
 
         // Parse the JSON response
         let cards = parse_briefing_response(&content)
             .map_err(|e| ResearchError::new(ErrorCode::ParseError, e))?;
 
-        info!("Successfully generated {} briefing cards from synthesis", cards.len());
+        info!(
+            "Successfully generated {} briefing cards from synthesis",
+            cards.len()
+        );
 
         // Update phase and emit synthesis:completed event
         research_state::set_phase(&format!("Synthesis complete: {} cards", cards.len()));
         if let Some(app) = app_handle {
-            let _ = app.emit("research:synthesis_completed", SynthesisCompletedEvent {
-                timestamp: get_timestamp(),
-                cards_generated: cards.len(),
-                duration_ms: synthesis_duration,
-            });
+            let _ = app.emit(
+                "research:synthesis_completed",
+                SynthesisCompletedEvent {
+                    timestamp: get_timestamp(),
+                    cards_generated: cards.len(),
+                    duration_ms: synthesis_duration,
+                },
+            );
         }
 
         Ok((cards, tokens))
@@ -1511,8 +1968,13 @@ fn parse_briefing_response(response: &str) -> Result<Vec<BriefingCard>, String> 
             if error_msg.contains("EOF") {
                 // Try to fix truncated JSON by closing the array and object
                 let fixed_attempt = format!("{}\n]\n}}", json_str.trim_end_matches(','));
-                if let Ok(briefing_response) = serde_json::from_str::<BriefingResponse>(&fixed_attempt) {
-                    warn!("Recovered {} cards from truncated response", briefing_response.cards.len());
+                if let Ok(briefing_response) =
+                    serde_json::from_str::<BriefingResponse>(&fixed_attempt)
+                {
+                    warn!(
+                        "Recovered {} cards from truncated response",
+                        briefing_response.cards.len()
+                    );
                     return Ok(briefing_response.cards);
                 }
 
@@ -1605,7 +2067,9 @@ That's the summary!"#;
         let response = r#"{"cards": [{"title": "Test Card", "summary": "Brief summary", "detailed_content": "**Context and Background**\n\nFirst paragraph with **bold text** and context.\n\n**Key Findings**\n\n- Finding one\n- Finding two\n- Finding three\n\n**Looking Ahead**\n\nConclusion with implications.", "sources": ["https://example.com"], "suggested_next": null, "relevance": "high", "topic": "Test Topic"}]}"#;
         let cards = parse_briefing_response(response).unwrap();
         assert_eq!(cards.len(), 1);
-        assert!(cards[0].detailed_content.contains("**Context and Background**"));
+        assert!(cards[0]
+            .detailed_content
+            .contains("**Context and Background**"));
         assert!(cards[0].detailed_content.contains("- Finding one"));
         assert!(cards[0].detailed_content.contains("**Key Findings**"));
     }
@@ -1656,20 +2120,18 @@ That's the summary!"#;
         let result = ResearchResult {
             date: "2025-01-15".to_string(),
             title: "Daily Briefing - January 15, 2025".to_string(),
-            cards: vec![
-                BriefingCard {
-                    title: "Card 1".to_string(),
-                    summary: "Summary 1".to_string(),
-                    sources: vec![],
-                    suggested_next: None,
-                    relevance: "high".to_string(),
-                    topic: "Topic 1".to_string(),
-                    detailed_content: "Detailed content 1".to_string(),
-                    image_prompt: None,
-                    image_style: None,
-                    image_path: None,
-                }
-            ],
+            cards: vec![BriefingCard {
+                title: "Card 1".to_string(),
+                summary: "Summary 1".to_string(),
+                sources: vec![],
+                suggested_next: None,
+                relevance: "high".to_string(),
+                topic: "Topic 1".to_string(),
+                detailed_content: "Detailed content 1".to_string(),
+                image_prompt: None,
+                image_style: None,
+                image_path: None,
+            }],
             research_time_ms: 1500,
             model_used: "claude-haiku-4-5-20251001".to_string(),
             total_tokens: 2500,
@@ -1689,7 +2151,12 @@ That's the summary!"#;
 
     #[test]
     fn test_research_agent_creation() {
-        let agent = ResearchAgent::new("test-api-key".to_string(), None, false, "standard".to_string());
+        let agent = ResearchAgent::new(
+            "test-api-key".to_string(),
+            None,
+            false,
+            "standard".to_string(),
+        );
         assert_eq!(agent.model, "claude-haiku-4-5-20251001");
         assert!(!agent.enable_web_search);
         assert_eq!(agent.research_mode, "standard");
@@ -1698,7 +2165,7 @@ That's the summary!"#;
             "test-api-key".to_string(),
             Some("claude-opus-4-5-20251101".to_string()),
             false,
-            "firecrawl".to_string()
+            "firecrawl".to_string(),
         );
         assert_eq!(agent_custom.model, "claude-opus-4-5-20251101");
         assert_eq!(agent_custom.research_mode, "firecrawl");
@@ -1706,20 +2173,33 @@ That's the summary!"#;
 
     #[test]
     fn test_research_agent_with_web_search() {
-        let agent = ResearchAgent::new("test-api-key".to_string(), None, true, "standard".to_string());
+        let agent = ResearchAgent::new(
+            "test-api-key".to_string(),
+            None,
+            true,
+            "standard".to_string(),
+        );
         assert!(agent.enable_web_search);
 
         // Test that get_tools_json includes web_search when enabled
         let tools = agent.get_tools_json();
-        let has_web_search = tools.iter().any(|t| {
-            t.get("type").and_then(|v| v.as_str()) == Some(WEB_SEARCH_TOOL_TYPE)
-        });
-        assert!(has_web_search, "web_search tool should be included when enabled");
+        let has_web_search = tools
+            .iter()
+            .any(|t| t.get("type").and_then(|v| v.as_str()) == Some(WEB_SEARCH_TOOL_TYPE));
+        assert!(
+            has_web_search,
+            "web_search tool should be included when enabled"
+        );
     }
 
     #[tokio::test]
     async fn test_run_research_empty_topics() {
-        let mut agent = ResearchAgent::new("test-api-key".to_string(), None, false, "standard".to_string());
+        let mut agent = ResearchAgent::new(
+            "test-api-key".to_string(),
+            None,
+            false,
+            "standard".to_string(),
+        );
         let result = agent.run_research(vec![], None, false, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No topics provided"));
@@ -1727,7 +2207,8 @@ That's the summary!"#;
 
     #[test]
     fn test_extract_text_from_html() {
-        let html = r#"<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"#;
+        let html =
+            r#"<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"#;
         let text = extract_text_from_html(html);
         assert!(text.contains("Hello World"));
         assert!(!text.contains("<p>"));
@@ -1783,5 +2264,53 @@ That's the summary!"#;
         assert_eq!(tools.len(), 2);
         assert!(tools.iter().any(|t| t.name == "get_github_activity"));
         assert!(tools.iter().any(|t| t.name == "fetch_webpage"));
+    }
+
+    #[test]
+    fn test_tool_filtering_standard_mode() {
+        // In standard mode, firecrawl tools should be excluded
+        let agent = ResearchAgent::new(
+            "test-api-key".to_string(),
+            None,
+            false,
+            "standard".to_string(),
+        );
+
+        // Without MCP client, should only have built-in tools
+        let tools = agent.get_all_tools();
+        assert_eq!(tools.len(), 2); // get_github_activity and fetch_webpage
+        assert!(tools.iter().any(|t| t.name == "fetch_webpage"));
+        assert!(tools.iter().any(|t| t.name == "get_github_activity"));
+    }
+
+    #[test]
+    fn test_tool_filtering_firecrawl_mode() {
+        // In firecrawl mode, fetch_webpage should be excluded from built-in tools
+        let agent = ResearchAgent::new(
+            "test-api-key".to_string(),
+            None,
+            false,
+            "firecrawl".to_string(),
+        );
+
+        // Without MCP client, fetch_webpage should be excluded
+        let tools = agent.get_all_tools();
+        assert_eq!(tools.len(), 1); // Only get_github_activity
+        assert!(tools.iter().any(|t| t.name == "get_github_activity"));
+        assert!(
+            !tools.iter().any(|t| t.name == "fetch_webpage"),
+            "fetch_webpage should be excluded in firecrawl mode"
+        );
+    }
+
+    #[test]
+    fn test_research_mode_stored_correctly() {
+        let agent_standard =
+            ResearchAgent::new("key".to_string(), None, false, "standard".to_string());
+        assert_eq!(agent_standard.research_mode, "standard");
+
+        let agent_firecrawl =
+            ResearchAgent::new("key".to_string(), None, false, "firecrawl".to_string());
+        assert_eq!(agent_firecrawl.research_mode, "firecrawl");
     }
 }

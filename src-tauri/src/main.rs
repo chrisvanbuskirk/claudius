@@ -1,20 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod commands;
+mod config;
 mod db;
 mod dedup;
-mod commands;
-mod tray;
+mod housekeeping;
+mod image_gen;
+mod mcp_client;
 mod notifications;
 mod research;
-mod research_state;
-mod mcp_client;
 mod research_log;
+mod research_state;
+mod tray;
 mod updater;
-mod housekeeping;
-mod config;
-mod image_gen;
 
-use tauri::{Manager, Emitter};
+use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 fn main() {
@@ -29,7 +29,9 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Check if this is a refresh signal from CLI
-            let is_refresh = args.iter().any(|arg| arg == "--refresh" || arg == "refresh");
+            let is_refresh = args
+                .iter()
+                .any(|arg| arg == "--refresh" || arg == "refresh");
 
             if is_refresh {
                 tracing::info!("CLI refresh signal received, emitting briefings:refresh event");
@@ -158,29 +160,32 @@ fn main() {
             let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyB);
 
             let app_handle_for_shortcut = app_handle.clone();
-            if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                // Only respond to key press, not release (prevents double-trigger)
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-                tracing::info!("Global shortcut triggered (key pressed)");
-                if let Some(window) = app_handle_for_shortcut.get_webview_window("main") {
-                    match window.is_visible() {
-                        Ok(true) => {
-                            tracing::info!("Main window visible, hiding");
-                            let _ = window.hide();
+            if let Err(e) =
+                app.global_shortcut()
+                    .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                        // Only respond to key press, not release (prevents double-trigger)
+                        if event.state != ShortcutState::Pressed {
+                            return;
                         }
-                        Ok(false) => {
-                            tracing::info!("Main window hidden, showing");
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        tracing::info!("Global shortcut triggered (key pressed)");
+                        if let Some(window) = app_handle_for_shortcut.get_webview_window("main") {
+                            match window.is_visible() {
+                                Ok(true) => {
+                                    tracing::info!("Main window visible, hiding");
+                                    let _ = window.hide();
+                                }
+                                Ok(false) => {
+                                    tracing::info!("Main window hidden, showing");
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to check window visibility: {}", e);
+                                }
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to check window visibility: {}", e);
-                        }
-                    }
-                }
-            }) {
+                    })
+            {
                 tracing::error!("Failed to register global shortcut: {}", e);
             } else {
                 tracing::info!("Global shortcut registered: Cmd/Ctrl+Shift+B");

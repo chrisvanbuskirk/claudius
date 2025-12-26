@@ -32,17 +32,17 @@ pub struct ResearchSettings {
     #[serde(default)]
     pub enable_web_search: bool,
     #[serde(default)]
-    pub retention_days: Option<i32>,  // None = never delete
+    pub retention_days: Option<i32>, // None = never delete
     #[serde(default)]
-    pub condense_briefings: bool,  // Combine all topics into one comprehensive card
+    pub condense_briefings: bool, // Combine all topics into one comprehensive card
     #[serde(default = "default_dedup_days")]
-    pub dedup_days: i32,  // Days to look back for duplicates
+    pub dedup_days: i32, // Days to look back for duplicates
     #[serde(default = "default_dedup_threshold")]
-    pub dedup_threshold: f64,  // Similarity threshold (0.0-1.0)
+    pub dedup_threshold: f64, // Similarity threshold (0.0-1.0)
     #[serde(default)]
-    pub enable_image_generation: bool,  // Generate header images using DALL-E
+    pub enable_image_generation: bool, // Generate header images using DALL-E
     #[serde(default = "default_research_mode")]
-    pub research_mode: String,  // "standard" | "firecrawl" - determines which tools are used
+    pub research_mode: String, // "standard" | "firecrawl" - determines which tools are used
 }
 
 fn default_notification_sound() -> bool {
@@ -128,10 +128,9 @@ pub fn read_mcp_servers() -> Result<MCPServersConfig, String> {
     if !path.exists() {
         return Ok(MCPServersConfig { servers: vec![] });
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read MCP servers: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse MCP servers: {}", e))
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read MCP servers: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse MCP servers: {}", e))
 }
 
 pub fn write_mcp_servers(config: &MCPServersConfig) -> Result<(), String> {
@@ -139,8 +138,7 @@ pub fn write_mcp_servers(config: &MCPServersConfig) -> Result<(), String> {
     let path = get_mcp_servers_path();
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize MCP servers: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write MCP servers: {}", e))
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write MCP servers: {}", e))
 }
 
 // ============================================================================
@@ -152,10 +150,9 @@ pub fn read_settings() -> Result<ResearchSettings, String> {
     if !path.exists() {
         return Ok(ResearchSettings::default());
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read settings: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse settings: {}", e))
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
 }
 
 pub fn write_settings(settings: &ResearchSettings) -> Result<(), String> {
@@ -163,8 +160,7 @@ pub fn write_settings(settings: &ResearchSettings) -> Result<(), String> {
     let path = get_preferences_path();
     let content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write settings: {}", e))
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
 // ============================================================================
@@ -224,8 +220,7 @@ pub fn write_api_key(api_key: &str) -> Result<(), String> {
 
     let content = lines.join("\n") + "\n";
 
-    std::fs::write(&env_path, content)
-        .map_err(|e| format!("Failed to write .env file: {}", e))?;
+    std::fs::write(&env_path, content).map_err(|e| format!("Failed to write .env file: {}", e))?;
 
     // Set restrictive permissions (owner read/write only)
     #[cfg(unix)]
@@ -338,8 +333,7 @@ pub fn write_openai_api_key(api_key: &str) -> Result<(), String> {
 
     let content = lines.join("\n") + "\n";
 
-    std::fs::write(&env_path, content)
-        .map_err(|e| format!("Failed to write .env file: {}", e))?;
+    std::fs::write(&env_path, content).map_err(|e| format!("Failed to write .env file: {}", e))?;
 
     // Set restrictive permissions (owner read/write only)
     #[cfg(unix)]

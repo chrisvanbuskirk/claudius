@@ -82,6 +82,67 @@
   }
 }
 
+/* Markdown prose styles for detailed content */
+.prose {
+  line-height: 1.7;
+}
+
+.prose h2, .prose h3, .prose h4 {
+  @apply font-semibold mt-4 mb-2;
+}
+
+.prose h2 { @apply text-lg; }
+.prose h3 { @apply text-base; }
+.prose h4 { @apply text-sm; }
+
+.prose p {
+  @apply mb-3;
+}
+
+.prose strong {
+  @apply font-semibold;
+}
+
+.prose em {
+  @apply italic;
+}
+
+.prose ul, .prose ol {
+  @apply pl-5 mb-3 space-y-1;
+}
+
+.prose ul {
+  @apply list-disc;
+}
+
+.prose ol {
+  @apply list-decimal;
+}
+
+.prose li {
+  @apply pl-1;
+}
+
+.prose a {
+  @apply text-primary-600 dark:text-primary-400 hover:underline;
+}
+
+.prose code {
+  @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.prose pre {
+  @apply bg-gray-100 dark:bg-gray-800 p-3 rounded-lg overflow-x-auto mb-3;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic text-gray-600 dark:text-gray-400;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

@@ -123,24 +123,34 @@ The research agent implementation lives in `src-tauri/src/research.rs` and handl
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/home.png" alt="Home - Daily Briefings" width="800">
+  <img src="screenshots/home.jpg" alt="Home - Daily Briefings" width="800">
 </p>
-<p align="center"><em>Home screen with daily briefing cards featuring glassmorphism design</em></p>
+<p align="center"><em>Home screen with daily briefing cards featuring AI-generated images and glassmorphism design</em></p>
 
 <p align="center">
-  <img src="screenshots/topics.png" alt="Topics Configuration" width="800">
+  <img src="screenshots/topic.jpg" alt="Topics Configuration" width="800">
 </p>
 <p align="center"><em>Configure research topics with descriptions and enable/disable toggles</em></p>
 
 <p align="center">
-  <img src="screenshots/research_settings.png" alt="Research Settings" width="800">
+  <img src="screenshots/research.jpg" alt="Research Settings" width="800">
 </p>
-<p align="center"><em>Research settings: schedule, model selection, and manual trigger</em></p>
+<p align="center"><em>Research settings: model selection, research mode, and image generation</em></p>
 
 <p align="center">
-  <img src="screenshots/mcps.png" alt="MCP Servers" width="800">
+  <img src="screenshots/mcps.jpg" alt="MCP Servers" width="800">
 </p>
 <p align="center"><em>MCP server configuration for enhanced research capabilities</em></p>
+
+<p align="center">
+  <img src="screenshots/chat.jpg" alt="Chat with Cards" width="800">
+</p>
+<p align="center"><em>Chat with Claude about any briefing card for deeper exploration</em></p>
+
+<p align="center">
+  <img src="screenshots/bookmarks.jpg" alt="Bookmarks" width="800">
+</p>
+<p align="center"><em>Save and organize your favorite briefing cards</em></p>
 
 ## Project Structure
 

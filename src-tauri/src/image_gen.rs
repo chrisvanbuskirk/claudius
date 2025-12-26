@@ -72,8 +72,7 @@ pub fn image_exists(briefing_id: i64, card_index: usize) -> bool {
 pub fn delete_image(briefing_id: i64, card_index: usize) -> Result<(), String> {
     let path = get_image_path(briefing_id, card_index);
     if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Failed to delete image: {}", e))?;
+        std::fs::remove_file(&path).map_err(|e| format!("Failed to delete image: {}", e))?;
         debug!("Deleted image: {:?}", path);
     }
     Ok(())
@@ -156,7 +155,7 @@ pub async fn generate_image(
         model: "dall-e-3".to_string(),
         prompt: prompt.to_string(),
         n: 1,
-        size: "1792x1024".to_string(),  // Landscape format, ideal for header images
+        size: "1792x1024".to_string(), // Landscape format, ideal for header images
         response_format: "b64_json".to_string(),
     };
 

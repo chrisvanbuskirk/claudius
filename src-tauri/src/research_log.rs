@@ -42,10 +42,7 @@ pub enum ErrorCode {
 impl ErrorCode {
     /// Returns true if this error requires user action to resolve.
     pub fn requires_user_action(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::InvalidApiKey | ErrorCode::BudgetExceeded
-        )
+        matches!(self, ErrorCode::InvalidApiKey | ErrorCode::BudgetExceeded)
     }
 
     /// Get a user-friendly message for this error code.
@@ -353,7 +350,8 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     } else {
         // Find the last valid char boundary at or before max_len - 3
         let truncate_at = max_len.saturating_sub(3);
-        let truncate_pos = s.char_indices()
+        let truncate_pos = s
+            .char_indices()
             .take_while(|(idx, _)| *idx <= truncate_at)
             .last()
             .map(|(idx, _)| idx)
@@ -459,11 +457,7 @@ impl ResearchLogger {
     }
 
     /// Log an API request.
-    pub fn log_api_request(
-        topic: &str,
-        tokens: i64,
-        duration_ms: i64,
-    ) -> Result<i64, String> {
+    pub fn log_api_request(topic: &str, tokens: i64, duration_ms: i64) -> Result<i64, String> {
         Self::log(
             &ResearchLogEntry::success(LogType::ApiRequest)
                 .with_topic(topic)
@@ -474,10 +468,7 @@ impl ResearchLogger {
 
     /// Log an API error.
     pub fn log_api_error(topic: &str, error: &ResearchError) -> Result<i64, String> {
-        Self::log(
-            &ResearchLogEntry::failure(LogType::ApiRequest, error)
-                .with_topic(topic),
-        )
+        Self::log(&ResearchLogEntry::failure(LogType::ApiRequest, error).with_topic(topic))
     }
 
     /// Log an MCP tool call.
@@ -536,7 +527,9 @@ impl ResearchLogger {
                LIMIT ?2"#
         };
 
-        let mut stmt = conn.prepare(query).map_err(|e| format!("Failed to prepare query: {}", e))?;
+        let mut stmt = conn
+            .prepare(query)
+            .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
         let params: Vec<Box<dyn rusqlite::ToSql>> = if let Some(bid) = briefing_id {
             vec![Box::new(bid), Box::new(limit)]
@@ -545,24 +538,27 @@ impl ResearchLogger {
         };
 
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())), |row| {
-                Ok(ResearchLogRecord {
-                    id: row.get(0)?,
-                    briefing_id: row.get(1)?,
-                    log_type: row.get(2)?,
-                    topic: row.get(3)?,
-                    tool_name: row.get(4)?,
-                    input_summary: row.get(5)?,
-                    output_summary: row.get(6)?,
-                    duration_ms: row.get(7)?,
-                    tokens_used: row.get(8)?,
-                    success: row.get::<_, i32>(9)? == 1,
-                    error_code: row.get(10)?,
-                    error_message: row.get(11)?,
-                    user_action_required: row.get::<_, i32>(12)? == 1,
-                    created_at: row.get(13)?,
-                })
-            })
+            .query_map(
+                rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+                |row| {
+                    Ok(ResearchLogRecord {
+                        id: row.get(0)?,
+                        briefing_id: row.get(1)?,
+                        log_type: row.get(2)?,
+                        topic: row.get(3)?,
+                        tool_name: row.get(4)?,
+                        input_summary: row.get(5)?,
+                        output_summary: row.get(6)?,
+                        duration_ms: row.get(7)?,
+                        tokens_used: row.get(8)?,
+                        success: row.get::<_, i32>(9)? == 1,
+                        error_code: row.get(10)?,
+                        error_message: row.get(11)?,
+                        user_action_required: row.get::<_, i32>(12)? == 1,
+                        created_at: row.get(13)?,
+                    })
+                },
+            )
             .map_err(|e| format!("Failed to query logs: {}", e))?;
 
         let mut logs = Vec::new();

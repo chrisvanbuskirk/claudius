@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { /* ThumbsUp, ThumbsDown, */ ExternalLink, ChevronDown, ChevronUp, Sparkles, MessageCircle, Bookmark, X, AlertTriangle, Printer } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import ReactMarkdown from 'react-markdown';
 import type { Briefing } from '../types';
 
 // Delete Confirmation Dialog
@@ -96,6 +97,29 @@ function isValidUrl(str: string): boolean {
   }
 }
 
+// Simple markdown to HTML conversion for print
+function markdownToHtml(markdown: string): string {
+  return markdown
+    // Bold: **text** or __text__
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // Italic: *text* or _text_
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    // Headers: ## Header
+    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    // Bullet lists: - item or * item
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    // Wrap consecutive <li> in <ul>
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    // Links: [text](url)
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+    // Line breaks
+    .replace(/\n/g, '<br>');
+}
+
 // Generate a placeholder gradient based on a string hash
 function generatePlaceholderGradient(str: string): string {
   const hash = str.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -175,7 +199,7 @@ export function BriefingCard({ briefing, /* onThumbsUp, onThumbsDown, */ onOpenC
     const detailedContentHtml = briefing.detailed_content
       ? `<div class="detailed-content">
           <h3>Detailed Research</h3>
-          <p>${briefing.detailed_content.replace(/\n/g, '<br>')}</p>
+          <div>${markdownToHtml(briefing.detailed_content)}</div>
         </div>`
       : '';
 
@@ -441,9 +465,9 @@ ${suggestedNextHtml}
             <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
             Detailed Research
           </h4>
-          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-line">
-            {briefing.detailed_content}
-          </p>
+          <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown>{briefing.detailed_content}</ReactMarkdown>
+          </div>
         </div>
       )}
 

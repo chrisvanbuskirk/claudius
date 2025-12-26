@@ -3,10 +3,10 @@
 //! This module provides functions for cleaning up old briefings based on
 //! user-configured retention settings. Bookmarked briefings are always preserved.
 
+use crate::config::read_settings;
+use crate::db;
 use rusqlite::Connection;
 use tracing::{info, warn};
-use crate::db;
-use crate::config::read_settings;
 
 /// Result of a housekeeping run
 #[derive(Debug, PartialEq)]
@@ -18,7 +18,10 @@ pub struct CleanupResult {
 
 /// Run cleanup with given retention days on a specific connection.
 /// This is the testable core of the cleanup logic.
-pub fn run_cleanup_with_conn(conn: &Connection, retention_days: Option<i32>) -> Result<CleanupResult, String> {
+pub fn run_cleanup_with_conn(
+    conn: &Connection,
+    retention_days: Option<i32>,
+) -> Result<CleanupResult, String> {
     // Check if cleanup is enabled
     let days = match retention_days {
         Some(d) => d,
@@ -62,8 +65,8 @@ pub fn run_cleanup_with_conn(conn: &Connection, retention_days: Option<i32>) -> 
 /// This is safe to call at any time - it will do nothing if retention_days is None.
 pub fn run_cleanup() -> Result<CleanupResult, String> {
     let settings = read_settings()?;
-    let conn = db::get_connection()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    let conn =
+        db::get_connection().map_err(|e| format!("Failed to get database connection: {}", e))?;
 
     run_cleanup_with_conn(&conn, settings.retention_days)
 }
@@ -73,7 +76,10 @@ pub fn run_startup_cleanup() {
     match run_cleanup() {
         Ok(result) => {
             if result.deleted_count > 0 {
-                info!("Startup cleanup complete: {} briefing(s) deleted", result.deleted_count);
+                info!(
+                    "Startup cleanup complete: {} briefing(s) deleted",
+                    result.deleted_count
+                );
             }
         }
         Err(e) => {
@@ -102,13 +108,17 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES ('2020-01-01', 'Old', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Run cleanup with retention_days = None
         let result = run_cleanup_with_conn(&conn, None).unwrap();
 
         assert_eq!(result.deleted_count, 0);
-        assert_eq!(result.skipped_reason, Some("Retention is set to 'Never delete'".to_string()));
+        assert_eq!(
+            result.skipped_reason,
+            Some("Retention is set to 'Never delete'".to_string())
+        );
 
         // Briefing should still exist
         let count = db::count_briefings(&conn).unwrap();
@@ -129,7 +139,8 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Recent', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(db::count_briefings(&conn).unwrap(), 2);
 
@@ -185,7 +196,8 @@ mod tests {
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now'), 'Today', '[]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO briefings (date, title, cards) VALUES (date('now', '-5 days'), '5 days ago', '[]')",
             [],

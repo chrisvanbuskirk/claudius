@@ -1,7 +1,7 @@
+use std::process::Command;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
-use tracing::{info, warn, error};
-use std::process::Command;
+use tracing::{error, info, warn};
 
 /// Escape a string for safe use in AppleScript.
 /// Escapes backslashes, double quotes, and newlines.
@@ -18,7 +18,10 @@ pub fn notify_research_complete(
     count: usize,
     enable_sound: bool,
 ) -> Result<(), String> {
-    info!("Sending research complete notification (count: {}, sound: {})", count, enable_sound);
+    info!(
+        "Sending research complete notification (count: {}, sound: {})",
+        count, enable_sound
+    );
 
     let title = "Research Complete";
     let body = if count == 1 {
@@ -40,10 +43,7 @@ pub fn notify_research_complete(
     // Try Tauri notification first
     // Note: On macOS, the app icon is automatically used from the bundle in production
     // In dev mode, notifications may show a generic icon
-    let mut builder = app.notification()
-        .builder()
-        .title(title)
-        .body(&body);
+    let mut builder = app.notification().builder().title(title).body(&body);
 
     if enable_sound {
         builder = builder.sound("default");
@@ -76,7 +76,11 @@ pub fn notify_research_complete(
     // Note: AppleScript notifications show Script Editor icon, not app icon
     #[cfg(target_os = "macos")]
     if !tauri_success {
-        let sound_option = if enable_sound { "sound name \"Glass\"" } else { "" };
+        let sound_option = if enable_sound {
+            "sound name \"Glass\""
+        } else {
+            ""
+        };
         let script = format!(
             r#"display notification "{}" with title "{}" {}"#,
             escape_applescript(&body),
@@ -84,11 +88,7 @@ pub fn notify_research_complete(
             sound_option
         );
 
-        match Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-        {
+        match Command::new("osascript").arg("-e").arg(&script).output() {
             Ok(output) => {
                 if output.status.success() {
                     info!("Native macOS notification sent (fallback)");
@@ -136,7 +136,10 @@ pub async fn check_notification_permission(app: &AppHandle) -> bool {
                     // Request permission
                     match app.notification().request_permission() {
                         Ok(new_state) => {
-                            matches!(new_state, tauri_plugin_notification::PermissionState::Granted)
+                            matches!(
+                                new_state,
+                                tauri_plugin_notification::PermissionState::Granted
+                            )
                         }
                         Err(e) => {
                             error!("Failed to request notification permission: {}", e);

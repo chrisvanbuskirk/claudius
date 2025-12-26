@@ -24,7 +24,8 @@ impl Default for ResearchState {
 }
 
 lazy_static! {
-    static ref GLOBAL_STATE: Arc<Mutex<ResearchState>> = Arc::new(Mutex::new(ResearchState::default()));
+    static ref GLOBAL_STATE: Arc<Mutex<ResearchState>> =
+        Arc::new(Mutex::new(ResearchState::default()));
 }
 
 /// Get a clone of the current global research state

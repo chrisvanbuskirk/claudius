@@ -9,7 +9,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::Duration;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::db::{self, ChatMessage};
 use crate::mcp_client::{load_mcp_servers, McpClient};
@@ -185,15 +185,21 @@ fn get_chat_tools() -> Vec<Tool> {
 /// Get all tools as JSON values for API request.
 ///
 /// Combines built-in tools with MCP tools and optionally Claude's web_search.
-fn get_tools_json(mcp_client: &Option<McpClient>, enable_web_search: bool) -> Vec<serde_json::Value> {
+fn get_tools_json(
+    mcp_client: &Option<McpClient>,
+    enable_web_search: bool,
+) -> Vec<serde_json::Value> {
     let tools = get_chat_tools();
-    let mut tools_json: Vec<serde_json::Value> = tools.iter().map(|t| {
-        json!({
-            "name": t.name,
-            "description": t.description,
-            "input_schema": t.input_schema
+    let mut tools_json: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema
+            })
         })
-    }).collect();
+        .collect();
 
     // Add MCP tools
     if let Some(ref client) = mcp_client {
@@ -231,7 +237,12 @@ fn get_builtin_tool_names() -> std::collections::HashSet<String> {
 // ============================================================================
 
 /// Build the system prompt for chat, including specific card context and date.
-fn build_system_prompt(briefing_title: &str, briefing_cards: &str, card_index: i32, has_tools: bool) -> String {
+fn build_system_prompt(
+    briefing_title: &str,
+    briefing_cards: &str,
+    card_index: i32,
+    has_tools: bool,
+) -> String {
     // Parse the cards JSON and extract the specific card's content
     let card_content = extract_card_content(briefing_cards, card_index);
 
@@ -286,7 +297,11 @@ fn extract_card_content(cards_json: &str, card_index: i32) -> String {
     // Get the specific card by index
     let card_idx = card_index as usize;
     if card_idx >= cards.len() {
-        return format!("Card {} not found (briefing has {} cards).", card_index, cards.len());
+        return format!(
+            "Card {} not found (briefing has {} cards).",
+            card_index,
+            cards.len()
+        );
     }
 
     let card = &cards[card_idx];
@@ -354,16 +369,19 @@ pub async fn send_chat_message(
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<(ChatMessage, i32), String> {
     // Get database connection
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     // Load briefing for context
     let briefing = load_briefing(&conn, briefing_id)?;
 
     // Load existing chat history for this specific card
     let history = db::get_chat_messages(&conn, briefing_id, card_index)?;
-    info!("Loaded {} messages from chat history for briefing {} card {}",
-        history.len(), briefing_id, card_index);
+    info!(
+        "Loaded {} messages from chat history for briefing {} card {}",
+        history.len(),
+        briefing_id,
+        card_index
+    );
 
     // Initialize MCP client for tools
     let mut mcp_client: Option<McpClient> = match load_mcp_servers() {
@@ -373,13 +391,19 @@ pub async fn send_chat_message(
                 info!("No MCP servers configured for chat");
                 None
             } else {
-                info!("Connecting to {} MCP servers for chat...", enabled_servers.len());
+                info!(
+                    "Connecting to {} MCP servers for chat...",
+                    enabled_servers.len()
+                );
                 match McpClient::connect(enabled_servers).await {
                     Ok(client) => {
                         let tool_count = client.get_all_tools().len();
                         info!("MCP client connected with {} tools", tool_count);
                         for tool in client.get_all_tools() {
-                            info!("  - MCP tool available: {} (from {})", tool.tool.name, tool.server_name);
+                            info!(
+                                "  - MCP tool available: {} (from {})",
+                                tool.tool.name, tool.server_name
+                            );
                         }
                         Some(client)
                     }
@@ -400,14 +424,16 @@ pub async fn send_chat_message(
     let tools_json = get_tools_json(&mcp_client, enable_web_search);
     let has_tools = !tools_json.is_empty();
 
-    info!("Chat tools configured: {} total (built-in: 2, MCP: {}, web_search: {})",
+    info!(
+        "Chat tools configured: {} total (built-in: 2, MCP: {}, web_search: {})",
         tools_json.len(),
         tools_json.len() - 2 - if enable_web_search { 1 } else { 0 },
         enable_web_search
     );
 
     // Build system prompt with specific card context and tool awareness
-    let system_prompt = build_system_prompt(&briefing.title, &briefing.cards, card_index, has_tools);
+    let system_prompt =
+        build_system_prompt(&briefing.title, &briefing.cards, card_index, has_tools);
 
     // Build messages array (will be mutated during agentic loop)
     let mut messages = build_messages(&history, user_message);
@@ -419,8 +445,10 @@ pub async fn send_chat_message(
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    info!("Sending chat message for briefing {} card {} (tools: {}, web_search: {})",
-        briefing_id, card_index, has_tools, enable_web_search);
+    info!(
+        "Sending chat message for briefing {} card {} (tools: {}, web_search: {})",
+        briefing_id, card_index, has_tools, enable_web_search
+    );
 
     let mut total_tokens: u32 = 0;
     let mut iterations: u32 = 0;
@@ -432,7 +460,10 @@ pub async fn send_chat_message(
         iterations += 1;
         if iterations > MAX_TOOL_ITERATIONS {
             error!("Max tool iterations ({}) exceeded", MAX_TOOL_ITERATIONS);
-            return Err(format!("Max tool iterations ({}) exceeded", MAX_TOOL_ITERATIONS));
+            return Err(format!(
+                "Max tool iterations ({}) exceeded",
+                MAX_TOOL_ITERATIONS
+            ));
         }
 
         // Create API request
@@ -441,7 +472,11 @@ pub async fn send_chat_message(
             max_tokens: 2048,
             messages: messages.clone(),
             system: system_prompt.clone(),
-            tools: if has_tools { Some(tools_json.clone()) } else { None },
+            tools: if has_tools {
+                Some(tools_json.clone())
+            } else {
+                None
+            },
         };
 
         // Send request to Anthropic API
@@ -472,18 +507,24 @@ pub async fn send_chat_message(
         let tokens = chat_response.usage.input_tokens + chat_response.usage.output_tokens;
         total_tokens += tokens;
 
-        info!("Chat API iteration {}: {} tokens, stop_reason: {:?}",
-            iterations, tokens, chat_response.stop_reason);
+        info!(
+            "Chat API iteration {}: {} tokens, stop_reason: {:?}",
+            iterations, tokens, chat_response.stop_reason
+        );
 
         // Check for tool use requests
-        let tool_uses: Vec<_> = chat_response.content.iter()
+        let tool_uses: Vec<_> = chat_response
+            .content
+            .iter()
             .filter(|c| c.content_type == "tool_use")
             .collect();
 
         // If no tool calls or stop_reason is end_turn, we're done
         if tool_uses.is_empty() || chat_response.stop_reason.as_deref() == Some("end_turn") {
             // Extract final text response
-            final_text = chat_response.content.iter()
+            final_text = chat_response
+                .content
+                .iter()
                 .filter_map(|block| {
                     if block.content_type == "text" {
                         block.text.clone()
@@ -494,7 +535,10 @@ pub async fn send_chat_message(
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            info!("Chat complete after {} iterations, {} total tokens", iterations, total_tokens);
+            info!(
+                "Chat complete after {} iterations, {} total tokens",
+                iterations, total_tokens
+            );
             break;
         }
 
@@ -511,11 +555,14 @@ pub async fn send_chat_message(
 
             // Emit tool start event
             if let Some(app) = app_handle {
-                let _ = app.emit("chat:tool_start", ChatToolStartEvent {
-                    tool_name: tool_name.to_string(),
-                    briefing_id,
-                    card_index,
-                });
+                let _ = app.emit(
+                    "chat:tool_start",
+                    ChatToolStartEvent {
+                        tool_name: tool_name.to_string(),
+                        briefing_id,
+                        card_index,
+                    },
+                );
             }
 
             let result = execute_chat_tool(
@@ -524,7 +571,8 @@ pub async fn send_chat_message(
                 &builtin_tools,
                 tool_name,
                 &tool_input,
-            ).await;
+            )
+            .await;
 
             let (content, is_error) = match &result {
                 Ok(output) => {
@@ -539,12 +587,15 @@ pub async fn send_chat_message(
 
             // Emit tool complete event
             if let Some(app) = app_handle {
-                let _ = app.emit("chat:tool_complete", ChatToolCompleteEvent {
-                    tool_name: tool_name.to_string(),
-                    success: result.is_ok(),
-                    briefing_id,
-                    card_index,
-                });
+                let _ = app.emit(
+                    "chat:tool_complete",
+                    ChatToolCompleteEvent {
+                        tool_name: tool_name.to_string(),
+                        success: result.is_ok(),
+                        briefing_id,
+                        card_index,
+                    },
+                );
             }
 
             tool_results.push(ContentBlock::ToolResult {
@@ -555,10 +606,14 @@ pub async fn send_chat_message(
         }
 
         // Add assistant's response (with tool_use blocks) to messages
-        let assistant_blocks: Vec<ContentBlock> = chat_response.content.iter()
+        let assistant_blocks: Vec<ContentBlock> = chat_response
+            .content
+            .iter()
             .map(|c| {
                 if c.content_type == "text" {
-                    ContentBlock::Text { text: c.text.clone().unwrap_or_default() }
+                    ContentBlock::Text {
+                        text: c.text.clone().unwrap_or_default(),
+                    }
                 } else if c.content_type == "tool_use" {
                     ContentBlock::ToolUse {
                         id: c.id.clone().unwrap_or_default(),
@@ -566,7 +621,9 @@ pub async fn send_chat_message(
                         input: c.input.clone().unwrap_or(json!({})),
                     }
                 } else {
-                    ContentBlock::Text { text: String::new() }
+                    ContentBlock::Text {
+                        text: String::new(),
+                    }
                 }
             })
             .collect();
@@ -584,7 +641,8 @@ pub async fn send_chat_message(
     }
 
     // Save user message to database
-    let _user_id = db::insert_chat_message(&conn, briefing_id, card_index, "user", user_message, None)?;
+    let _user_id =
+        db::insert_chat_message(&conn, briefing_id, card_index, "user", user_message, None)?;
 
     // Save assistant response to database
     let assistant_id = db::insert_chat_message(
@@ -605,9 +663,9 @@ pub async fn send_chat_message(
 
 /// Load a briefing from the database.
 fn load_briefing(conn: &rusqlite::Connection, briefing_id: i64) -> Result<BriefingData, String> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, cards FROM briefings WHERE id = ?1"
-    ).map_err(|e| format!("Failed to prepare statement: {}", e))?;
+    let mut stmt = conn
+        .prepare("SELECT id, title, cards FROM briefings WHERE id = ?1")
+        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
     stmt.query_row([briefing_id], |row| {
         Ok(BriefingData {
@@ -615,7 +673,8 @@ fn load_briefing(conn: &rusqlite::Connection, briefing_id: i64) -> Result<Briefi
             title: row.get(1)?,
             cards: row.get(2)?,
         })
-    }).map_err(|e| format!("Failed to load briefing: {}", e))
+    })
+    .map_err(|e| format!("Failed to load briefing: {}", e))
 }
 
 /// Minimal briefing data for chat context.
@@ -628,16 +687,14 @@ struct BriefingData {
 
 /// Get chat history for a specific card in a briefing.
 pub fn get_chat_history(briefing_id: i64, card_index: i32) -> Result<Vec<ChatMessage>, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     db::get_chat_messages(&conn, briefing_id, card_index)
 }
 
 /// Clear chat history for a specific card in a briefing.
 pub fn clear_chat_history(briefing_id: i64, card_index: i32) -> Result<usize, String> {
-    let conn = db::get_connection()
-        .map_err(|e| format!("Database connection failed: {}", e))?;
+    let conn = db::get_connection().map_err(|e| format!("Database connection failed: {}", e))?;
 
     db::delete_chat_messages(&conn, briefing_id, card_index)
 }
@@ -664,7 +721,8 @@ async fn execute_chat_tool(
     // Try MCP client
     if let Some(ref mut client) = mcp_client {
         // Check if the tool exists in MCP
-        let has_tool = client.get_all_tools()
+        let has_tool = client
+            .get_all_tools()
             .into_iter()
             .any(|t| t.tool.name == tool_name);
 
@@ -676,8 +734,9 @@ async fn execute_chat_tool(
             if let Some(s) = result.as_str() {
                 return Ok(s.to_string());
             } else {
-                return Ok(serde_json::to_string_pretty(&result)
-                    .unwrap_or_else(|_| result.to_string()));
+                return Ok(
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string())
+                );
             }
         }
     }
@@ -693,25 +752,30 @@ async fn execute_builtin_tool(
 ) -> Result<String, String> {
     match tool_name {
         "fetch_webpage" => {
-            let url = input.get("url")
+            let url = input
+                .get("url")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing url parameter")?;
             execute_fetch_webpage(client, url).await
         }
         "get_github_activity" => {
-            let owner = input.get("owner")
+            let owner = input
+                .get("owner")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing owner parameter")?;
-            let repo = input.get("repo")
+            let repo = input
+                .get("repo")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing repo parameter")?;
-            let activity_type = input.get("activity_type")
+            let activity_type = input
+                .get("activity_type")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing activity_type parameter")?;
 
             // Try to get GitHub token from environment
             let github_token = std::env::var("GITHUB_TOKEN").ok();
-            execute_github_activity(client, owner, repo, activity_type, github_token.as_deref()).await
+            execute_github_activity(client, owner, repo, activity_type, github_token.as_deref())
+                .await
         }
         _ => Err(format!("Unknown built-in tool: {}", tool_name)),
     }
@@ -750,7 +814,10 @@ async fn execute_fetch_webpage(client: &Client, url: &str) -> Result<String, Str
     let char_count = text.chars().count();
     if char_count > max_chars {
         let truncated: String = text.chars().take(max_chars).collect();
-        Ok(format!("{}...\n\n[Content truncated, {} total characters]", truncated, char_count))
+        Ok(format!(
+            "{}...\n\n[Content truncated, {} total characters]",
+            truncated, char_count
+        ))
     } else {
         Ok(text)
     }
@@ -800,10 +867,22 @@ async fn execute_github_activity(
     github_token: Option<&str>,
 ) -> Result<String, String> {
     let endpoint = match activity_type {
-        "commits" => format!("https://api.github.com/repos/{}/{}/commits?per_page=10", owner, repo),
-        "pulls" => format!("https://api.github.com/repos/{}/{}/pulls?state=all&per_page=10", owner, repo),
-        "issues" => format!("https://api.github.com/repos/{}/{}/issues?state=all&per_page=10", owner, repo),
-        "releases" => format!("https://api.github.com/repos/{}/{}/releases?per_page=5", owner, repo),
+        "commits" => format!(
+            "https://api.github.com/repos/{}/{}/commits?per_page=10",
+            owner, repo
+        ),
+        "pulls" => format!(
+            "https://api.github.com/repos/{}/{}/pulls?state=all&per_page=10",
+            owner, repo
+        ),
+        "issues" => format!(
+            "https://api.github.com/repos/{}/{}/issues?state=all&per_page=10",
+            owner, repo
+        ),
+        "releases" => format!(
+            "https://api.github.com/repos/{}/{}/releases?per_page=5",
+            owner, repo
+        ),
         _ => return Err(format!("Unknown activity type: {}", activity_type)),
     };
 
@@ -851,23 +930,30 @@ fn format_github_activity(data: &serde_json::Value, activity_type: &str) -> Resu
     for item in items {
         match activity_type {
             "commits" => {
-                let sha = item.get("sha").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let message = item.get("commit")
+                let sha = item
+                    .get("sha")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let message = item
+                    .get("commit")
                     .and_then(|c| c.get("message"))
                     .and_then(|m| m.as_str())
                     .unwrap_or("No message");
-                let author = item.get("commit")
+                let author = item
+                    .get("commit")
                     .and_then(|c| c.get("author"))
                     .and_then(|a| a.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("Unknown");
-                let date = item.get("commit")
+                let date = item
+                    .get("commit")
                     .and_then(|c| c.get("author"))
                     .and_then(|a| a.get("date"))
                     .and_then(|d| d.as_str())
                     .unwrap_or("");
 
-                result.push_str(&format!("- {} ({}) by {} on {}\n",
+                result.push_str(&format!(
+                    "- {} ({}) by {} on {}\n",
                     message.lines().next().unwrap_or(message),
                     &sha[..7.min(sha.len())],
                     author,
@@ -876,21 +962,36 @@ fn format_github_activity(data: &serde_json::Value, activity_type: &str) -> Resu
             }
             "pulls" | "issues" => {
                 let number = item.get("number").and_then(|v| v.as_u64()).unwrap_or(0);
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("No title");
-                let state = item.get("state").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let user = item.get("user")
+                let title = item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No title");
+                let state = item
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let user = item
+                    .get("user")
                     .and_then(|u| u.get("login"))
                     .and_then(|l| l.as_str())
                     .unwrap_or("unknown");
 
-                result.push_str(&format!("- #{} [{}] {} (by {})\n", number, state, title, user));
+                result.push_str(&format!(
+                    "- #{} [{}] {} (by {})\n",
+                    number, state, title, user
+                ));
             }
             "releases" => {
-                let name = item.get("name").and_then(|v| v.as_str())
+                let name = item
+                    .get("name")
+                    .and_then(|v| v.as_str())
                     .or_else(|| item.get("tag_name").and_then(|v| v.as_str()))
                     .unwrap_or("Unnamed");
                 let tag = item.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
-                let date = item.get("published_at").and_then(|v| v.as_str()).unwrap_or("");
+                let date = item
+                    .get("published_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
                 result.push_str(&format!("- {} ({}) - {}\n", name, tag, date));
             }
@@ -934,9 +1035,9 @@ mod tests {
         assert_eq!(tools.len(), 2);
 
         // Check tool structure
-        let fetch_tool = tools.iter().find(|t| {
-            t.get("name").and_then(|n| n.as_str()) == Some("fetch_webpage")
-        });
+        let fetch_tool = tools
+            .iter()
+            .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("fetch_webpage"));
         assert!(fetch_tool.is_some());
     }
 
@@ -947,14 +1048,17 @@ mod tests {
         assert_eq!(tools.len(), 3);
 
         // Check web_search is included
-        let web_search = tools.iter().find(|t| {
-            t.get("name").and_then(|n| n.as_str()) == Some("web_search")
-        });
+        let web_search = tools
+            .iter()
+            .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("web_search"));
         assert!(web_search.is_some());
 
         // Verify web_search has correct type
         let ws = web_search.unwrap();
-        assert_eq!(ws.get("type").and_then(|t| t.as_str()), Some(WEB_SEARCH_TOOL_TYPE));
+        assert_eq!(
+            ws.get("type").and_then(|t| t.as_str()),
+            Some(WEB_SEARCH_TOOL_TYPE)
+        );
     }
 
     #[test]
@@ -1074,9 +1178,9 @@ mod tests {
         let json = serde_json::to_string(&text_content).unwrap();
         assert_eq!(json, "\"Hello\"");
 
-        let blocks_content = MessageContent::Blocks(vec![
-            ContentBlock::Text { text: "Test".to_string() }
-        ]);
+        let blocks_content = MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "Test".to_string(),
+        }]);
         let json = serde_json::to_string(&blocks_content).unwrap();
         assert!(json.contains("\"type\":\"text\""));
     }
