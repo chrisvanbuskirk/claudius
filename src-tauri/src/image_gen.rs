@@ -45,32 +45,34 @@ struct DalleImage {
 }
 
 /// Get the images directory path (~/.claudius/images/)
-pub fn get_images_dir() -> PathBuf {
-    let home = dirs::home_dir().expect("Could not find home directory");
-    home.join(".claudius").join("images")
+pub fn get_images_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not find home directory".to_string())?;
+    Ok(home.join(".claudius").join("images"))
 }
 
 /// Ensure the images directory exists
 fn ensure_images_dir() -> Result<PathBuf, String> {
-    let images_dir = get_images_dir();
+    let images_dir = get_images_dir()?;
     std::fs::create_dir_all(&images_dir)
         .map_err(|e| format!("Failed to create images directory: {}", e))?;
     Ok(images_dir)
 }
 
 /// Generate image path for a card
-pub fn get_image_path(briefing_id: i64, card_index: usize) -> PathBuf {
-    get_images_dir().join(format!("{}_{}.png", briefing_id, card_index))
+pub fn get_image_path(briefing_id: i64, card_index: usize) -> Result<PathBuf, String> {
+    Ok(get_images_dir()?.join(format!("{}_{}.png", briefing_id, card_index)))
 }
 
 /// Check if an image exists for a card
 pub fn image_exists(briefing_id: i64, card_index: usize) -> bool {
-    get_image_path(briefing_id, card_index).exists()
+    get_image_path(briefing_id, card_index)
+        .map(|p| p.exists())
+        .unwrap_or(false)
 }
 
 /// Delete image for a card (used during cleanup)
 pub fn delete_image(briefing_id: i64, card_index: usize) -> Result<(), String> {
-    let path = get_image_path(briefing_id, card_index);
+    let path = get_image_path(briefing_id, card_index)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| format!("Failed to delete image: {}", e))?;
         debug!("Deleted image: {:?}", path);
@@ -80,7 +82,7 @@ pub fn delete_image(briefing_id: i64, card_index: usize) -> Result<(), String> {
 
 /// Delete all images for a briefing
 pub fn delete_briefing_images(briefing_id: i64) -> Result<usize, String> {
-    let images_dir = get_images_dir();
+    let images_dir = get_images_dir()?;
     if !images_dir.exists() {
         return Ok(0);
     }
@@ -116,7 +118,7 @@ fn save_base64_image(b64: &str, briefing_id: i64, card_index: usize) -> Result<P
         .decode(b64)
         .map_err(|e| format!("Base64 decode failed: {}", e))?;
 
-    let path = get_image_path(briefing_id, card_index);
+    let path = get_image_path(briefing_id, card_index)?;
     ensure_images_dir()?;
 
     std::fs::write(&path, bytes).map_err(|e| format!("Failed to write image: {}", e))?;
@@ -213,14 +215,14 @@ mod tests {
 
     #[test]
     fn test_get_image_path() {
-        let path = get_image_path(123, 0);
+        let path = get_image_path(123, 0).expect("Should get image path");
         assert!(path.to_string_lossy().contains("123_0.png"));
     }
 
     #[test]
     fn test_get_image_path_multiple() {
-        let path0 = get_image_path(456, 0);
-        let path1 = get_image_path(456, 1);
+        let path0 = get_image_path(456, 0).expect("Should get image path");
+        let path1 = get_image_path(456, 1).expect("Should get image path");
         assert_ne!(path0, path1);
         assert!(path0.to_string_lossy().contains("456_0.png"));
         assert!(path1.to_string_lossy().contains("456_1.png"));
@@ -228,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_get_images_dir() {
-        let dir = get_images_dir();
+        let dir = get_images_dir().expect("Should get images dir");
         assert!(dir.to_string_lossy().contains(".claudius"));
         assert!(dir.to_string_lossy().contains("images"));
     }

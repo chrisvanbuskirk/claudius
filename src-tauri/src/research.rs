@@ -1123,6 +1123,28 @@ impl ResearchAgent {
                 )
             });
 
+        // Validate Firecrawl mode - fail early if Firecrawl MCP is not configured
+        if self.research_mode == "firecrawl" {
+            let has_firecrawl = self
+                .mcp_client
+                .as_ref()
+                .map(|client| {
+                    client
+                        .get_all_tools()
+                        .iter()
+                        .any(|t| t.tool.name.contains("firecrawl"))
+                })
+                .unwrap_or(false);
+
+            if !has_firecrawl {
+                return Err(
+                    "Deep Research mode requires Firecrawl MCP server to be configured. \
+                     Please add Firecrawl in Settings → MCP Servers, or switch to Standard mode."
+                        .to_string(),
+                );
+            }
+        }
+
         // Step 1: Research each topic with tool support
         let mut research_content = String::new();
         let mut total_tokens: u32 = 0;
