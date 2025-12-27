@@ -2,6 +2,7 @@
 //!
 //! Handles calling the Anthropic API to research topics and generate briefings.
 //! Supports tool calling for external data sources via MCP servers and built-in tools.
+#![allow(dead_code)]
 
 use crate::mcp_client::{load_mcp_servers, McpClient};
 use crate::research_log::{parse_api_error, ErrorCode, ResearchError, ResearchLogger};

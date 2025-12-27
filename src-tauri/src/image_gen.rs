@@ -3,6 +3,7 @@
 //! This module handles generating header images for briefing cards using
 //! the DALL-E 3 API with landscape format (1792x1024) for optimal header display.
 //! Works on all platforms (macOS, Windows, Linux).
+#![allow(dead_code)]
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
