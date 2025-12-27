@@ -2,6 +2,9 @@
 //
 // This module provides pure Rust functions for reading/writing
 // configuration files. No Tauri dependencies.
+//
+// Note: Many functions are used by CLI but not by Tauri app, so we allow dead_code.
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

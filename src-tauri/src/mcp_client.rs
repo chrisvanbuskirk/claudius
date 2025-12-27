@@ -192,10 +192,30 @@ impl McpClient {
             cmd.env(key, value);
         }
 
-        // Ensure PATH is inherited for npx/node to work
-        if let Ok(path) = std::env::var("PATH") {
-            cmd.env("PATH", path);
+        // Ensure PATH includes common Node.js locations
+        // macOS apps launched from Finder don't inherit shell PATH, so we need to
+        // explicitly add locations where npx/node might be installed
+        let mut path = std::env::var("PATH").unwrap_or_default();
+        let extra_paths = [
+            "/opt/homebrew/bin", // Homebrew on Apple Silicon
+            "/usr/local/bin",    // Homebrew on Intel, or manual installs
+            "/opt/local/bin",    // MacPorts
+            &format!(
+                "{}/.nvm/versions/node/*/bin",
+                std::env::var("HOME").unwrap_or_default()
+            ), // nvm
+            &format!("{}/n/bin", std::env::var("HOME").unwrap_or_default()), // n version manager
+            &format!("{}/.local/bin", std::env::var("HOME").unwrap_or_default()), // local bin
+        ];
+        for extra in &extra_paths {
+            if !path.contains(extra) {
+                if !path.is_empty() {
+                    path.push(':');
+                }
+                path.push_str(extra);
+            }
         }
+        cmd.env("PATH", &path);
 
         let mut child = cmd
             .spawn()

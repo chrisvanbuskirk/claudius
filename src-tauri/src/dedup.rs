@@ -2,6 +2,7 @@
 //
 // Uses string similarity to detect and filter duplicate cards
 // across research sessions.
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use strsim::normalized_levenshtein;

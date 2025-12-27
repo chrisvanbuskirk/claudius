@@ -1,3 +1,6 @@
+// Note: Many functions are used by CLI but not by Tauri app, so we allow dead_code.
+#![allow(dead_code)]
+
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
