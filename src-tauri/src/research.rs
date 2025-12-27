@@ -1305,15 +1305,30 @@ impl ResearchAgent {
         let prev_year = (now.year() - 1).to_string();
         let month_year = now.format("%B %Y").to_string();
 
-        let system_prompt = format!(
-            r#"You are a research assistant gathering information on topics of interest.
+        // Build mode-specific tool usage instructions
+        let tool_usage_instructions = if self.research_mode == "firecrawl" {
+            format!(
+                r#"CRITICAL SEARCH TOOL USAGE (Firecrawl Deep Research Mode):
+- For COMPLEX topics requiring multi-page research, USE firecrawl_agent - it autonomously researches across multiple sources and synthesizes findings. This is your most powerful tool for in-depth research.
+- For quick searches, use firecrawl_search to find {} articles - it searches AND extracts content in one call
+- Use specific search queries like "[topic] {}" or "[topic] {} latest news"
+- firecrawl_search returns full page content, not just URLs - analyze the results directly
+- Use firecrawl_scrape to get full content from specific URLs you want to analyze deeply
+- Use firecrawl_extract for structured data extraction with custom prompts (great for extracting specific facts)
+- Use firecrawl_map to discover related pages on a website
+- Use get_github_activity for open source projects to see recent commits, PRs, and releases from {}
 
-IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
+IMPORTANT: firecrawl_agent is ideal for comprehensive research on complex topics - it will autonomously explore multiple sources and provide synthesized findings. Use it when depth matters.
 
-You have access to the following tools to fetch real-time data:
-{}
-
-CRITICAL SEARCH TOOL USAGE:
+Firecrawl tools handle JavaScript-heavy sites and provide clean markdown content. Use them aggressively for comprehensive research."#,
+                month_year,
+                month_year,
+                current_year,
+                month_year
+            )
+        } else {
+            format!(
+                r#"CRITICAL SEARCH TOOL USAGE:
 - If you have access to brave_search or perplexity search tools, USE THEM FIRST to find {} articles and information
 - Use specific search queries like "[topic] {}" or "[topic] {} latest news"
 - Search tools will give you current URLs and content - these are your primary source for {} information
@@ -1322,7 +1337,27 @@ CRITICAL SEARCH TOOL USAGE:
 
 When using fetch_webpage directly (without search):
 - Target URLs likely to have {} content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
-- Prioritize URLs with "/{}" or "{}" in the path
+- Prioritize URLs with "/{}" or "{}" in the path"#,
+                month_year,
+                month_year,
+                current_year,
+                month_year,
+                month_year,
+                month_year,
+                current_year.to_lowercase(),
+                month_year.to_lowercase().replace(" ", "-")
+            )
+        };
+
+        let system_prompt = format!(
+            r#"You are a research assistant gathering information on topics of interest.
+
+IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
+
+You have access to the following tools to fetch real-time data:
+{}
+
+{}
 
 After gathering current information, provide a comprehensive research summary based on {} data."#,
             current_date,
@@ -1330,14 +1365,7 @@ After gathering current information, provide a comprehensive research summary ba
             current_year,
             prev_year,
             tool_descriptions.join("\n"),
-            month_year,
-            month_year,
-            current_year,
-            month_year,
-            month_year,
-            month_year,
-            current_year.to_lowercase(),
-            month_year.to_lowercase().replace(" ", "-"),
+            tool_usage_instructions,
             month_year
         );
 
