@@ -1806,12 +1806,30 @@ When generating cards, avoid creating cards that duplicate these previously cove
             String::new()
         };
 
+        // Adjust content requirements based on research mode
+        let is_deep_research = self.research_mode == "firecrawl";
+        let (min_words_condensed, min_paragraphs_condensed) = if is_deep_research {
+            (800, "8-12")  // Deep research: more comprehensive
+        } else {
+            (400, "5-7")   // Standard: normal length
+        };
+        let (min_words_standard, min_paragraphs_standard) = if is_deep_research {
+            (350, "4-6")   // Deep research: more detailed per card
+        } else {
+            (150, "2-3")   // Standard: normal length
+        };
+        let depth_instruction = if is_deep_research {
+            "\n**DEEP RESEARCH MODE**: You have access to comprehensive web extraction. Provide EXTRA detail, analysis, and insights. Include more sources, deeper technical analysis, and thorough coverage. Users are paying premium credits for this depth - deliver exceptional value."
+        } else {
+            ""
+        };
+
         let prompt = if condense_briefings {
             // Condensed mode: one comprehensive card combining all topics
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize ALL the following research into ONE comprehensive briefing card that tells a cohesive story.
-
+{}
 CRITICAL: ONLY include information from the RESEARCH CONTENT below.
 Do NOT add topics from the deduplication list - that list is ONLY to help you avoid repeating old content.
 {}
@@ -1826,7 +1844,7 @@ Create a SINGLE comprehensive briefing card following these guidelines:
 For the single card, provide:
 - **Title**: A headline summarizing today's key developments (max 80 chars)
 - **Summary**: Overview of all topics covered (3-4 sentences)
-- **Detailed Content**: COMPREHENSIVE analysis using MARKDOWN formatting (minimum 400 words, 5-7 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE analysis using MARKDOWN formatting (minimum {} words, {} full paragraphs)
   - Use **bold text** for section headers and key terms (e.g., **Key Themes**, **Implications**)
   - Use bullet points or numbered lists for multiple items
   - Weave together insights from ALL research topics
@@ -1858,17 +1876,22 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Return the JSON response now:"#,
-                dedup_instruction, research_content
+                depth_instruction, dedup_instruction, research_content, min_words_condensed, min_paragraphs_condensed
             )
         } else {
             // Standard mode: multiple cards
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize the following research results into clear, actionable briefing cards.
-
+{}
 CRITICAL: ONLY create cards for topics that appear in the RESEARCH CONTENT below. 
 Do NOT create cards for topics mentioned in the deduplication list - that list is ONLY to help you avoid repeating old content.
-If the research content only covers one topic, create cards ONLY for that one topic.
+
+CARD QUALITY GUIDELINES:
+- Prefer fewer, stronger cards over many weak ones
+- You MAY create multiple cards for a single topic IF there are genuinely distinct sub-themes or developments worth separating
+- Each card must be substantial and stand on its own - no filler cards
+- If in doubt, consolidate into fewer comprehensive cards rather than splitting thin content
 {}
 {}
 
@@ -1882,7 +1905,7 @@ Generate briefing cards following these guidelines:
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
 - **Summary**: Brief overview (2-4 sentences) - what the user sees by default
-- **Detailed Content**: COMPREHENSIVE research analysis using MARKDOWN formatting (minimum 150 words, 2-3 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE research analysis using MARKDOWN formatting (minimum {} words, {} full paragraphs)
   - Use **bold** for key terms, important findings, and emphasis
   - Use bullet points or numbered lists when presenting multiple items
   - Include context, implications, technical details, and deeper insights
@@ -1915,7 +1938,7 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Return the JSON response now:"#,
-                dedup_instruction, research_content
+                depth_instruction, dedup_instruction, research_content, min_words_standard, min_paragraphs_standard
             )
         };
 

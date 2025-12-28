@@ -1819,6 +1819,49 @@ pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), Str
 }
 
 // ============================================================================
+// Export commands
+// ============================================================================
+
+/// Export content to a file with a save dialog
+#[tauri::command]
+pub async fn export_card(
+    app: tauri::AppHandle,
+    content: String,
+    default_filename: String,
+    file_type: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (filter_name, extensions) = match file_type.as_str() {
+        "markdown" => ("Markdown", vec!["md"]),
+        "html" => ("HTML", vec!["html"]),
+        _ => ("Text", vec!["txt"]),
+    };
+
+    let file_path = app
+        .dialog()
+        .file()
+        .set_file_name(&default_filename)
+        .add_filter(filter_name, &extensions)
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            // FilePath::into_path converts to PathBuf
+            let path_buf = path.into_path().map_err(|e| format!("Invalid path: {}", e))?;
+            std::fs::write(&path_buf, &content)
+                .map_err(|e| format!("Failed to write file: {}", e))?;
+            tracing::info!("Exported card to {:?}", path_buf);
+            Ok(true)
+        }
+        None => {
+            // User cancelled
+            Ok(false)
+        }
+    }
+}
+
+// ============================================================================
 // Print commands
 // ============================================================================
 

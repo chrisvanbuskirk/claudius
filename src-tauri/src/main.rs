@@ -26,6 +26,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Check if this is a refresh signal from CLI
@@ -128,7 +129,8 @@ fn main() {
             // Auto-update commands
             commands::check_for_update,
             commands::install_update_and_restart,
-            // Print commands
+            // Export & Print commands
+            commands::export_card,
             commands::print_card,
         ])
         .setup(|app| {
