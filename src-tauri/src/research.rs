@@ -762,6 +762,8 @@ impl ResearchAgent {
             "perplexity_ask",
             "fetch_webpage",
         ];
+        // Expensive tools to always exclude (firecrawl_agent uses 100s of credits per call)
+        let expensive_tools = ["firecrawl_agent"];
 
         // Add built-in tools (filtered by mode)
         for tool in get_research_tools() {
@@ -779,6 +781,15 @@ impl ResearchAgent {
         if let Some(ref mcp_client) = self.mcp_client {
             for mcp_tool in mcp_client.get_all_tools() {
                 let tool_name = &mcp_tool.tool.name;
+
+                // Always exclude expensive tools
+                if expensive_tools.iter().any(|et| tool_name.contains(et)) {
+                    tracing::debug!(
+                        "Excluding expensive tool '{}' (high credit usage)",
+                        tool_name
+                    );
+                    continue;
+                }
 
                 // Filter based on research mode
                 let dominated_by_firecrawl =
@@ -1309,16 +1320,13 @@ impl ResearchAgent {
         let tool_usage_instructions = if self.research_mode == "firecrawl" {
             format!(
                 r#"CRITICAL SEARCH TOOL USAGE (Firecrawl Deep Research Mode):
-- For COMPLEX topics requiring multi-page research, USE firecrawl_agent - it autonomously researches across multiple sources and synthesizes findings. This is your most powerful tool for in-depth research.
-- For quick searches, use firecrawl_search to find {} articles - it searches AND extracts content in one call
+- Use firecrawl_search to find {} articles - it searches AND extracts content in one call
 - Use specific search queries like "[topic] {}" or "[topic] {} latest news"
 - firecrawl_search returns full page content, not just URLs - analyze the results directly
 - Use firecrawl_scrape to get full content from specific URLs you want to analyze deeply
 - Use firecrawl_extract for structured data extraction with custom prompts (great for extracting specific facts)
 - Use firecrawl_map to discover related pages on a website
 - Use get_github_activity for open source projects to see recent commits, PRs, and releases from {}
-
-IMPORTANT: firecrawl_agent is ideal for comprehensive research on complex topics - it will autonomously explore multiple sources and provide synthesized findings. Use it when depth matters.
 
 Firecrawl tools handle JavaScript-heavy sites and provide clean markdown content. Use them aggressively for comprehensive research."#,
                 month_year,
