@@ -159,12 +159,11 @@ function InterestsTab() {
   };
 
   const handleToggleAll = async (enabled: boolean) => {
-    // Toggle all topics at once
-    for (const topic of topics) {
-      if (topic.enabled !== enabled) {
-        await updateTopic(topic.id, undefined, undefined, enabled);
-      }
-    }
+    // Toggle all topics in parallel for better performance
+    const topicsToToggle = topics.filter(topic => topic.enabled !== enabled);
+    await Promise.all(
+      topicsToToggle.map(topic => updateTopic(topic.id, undefined, undefined, enabled))
+    );
   };
 
   // Calculate if all topics are enabled (for the toggle all switch state)
@@ -1393,34 +1392,52 @@ function ResearchSettingsTab({ onMcpServersChanged }: { onMcpServersChanged?: ()
       
       // Handle MCP server toggling based on research mode
       if (key === 'research_mode') {
-        let serversChanged = false;
-        if (value === 'firecrawl') {
-          // In Firecrawl mode: disable Brave/Perplexity if they're enabled
-          if (braveServer?.enabled) {
-            await toggleServer(braveServer.id, false);
-            serversChanged = true;
+        // Track changes for potential rollback
+        const toggledServers: { id: string; previousState: boolean }[] = [];
+        
+        try {
+          if (value === 'firecrawl') {
+            // In Firecrawl mode: disable Brave/Perplexity if they're enabled
+            if (braveServer?.enabled) {
+              await toggleServer(braveServer.id, false);
+              toggledServers.push({ id: braveServer.id, previousState: true });
+            }
+            if (perplexityServer?.enabled) {
+              await toggleServer(perplexityServer.id, false);
+              toggledServers.push({ id: perplexityServer.id, previousState: true });
+            }
+            // Enable Firecrawl if it exists and is disabled
+            if (firecrawlServer && !firecrawlServer.enabled) {
+              await toggleServer(firecrawlServer.id, true);
+              toggledServers.push({ id: firecrawlServer.id, previousState: false });
+            }
+          } else if (value === 'standard') {
+            // In Standard mode: disable Firecrawl if it's enabled
+            if (firecrawlServer?.enabled) {
+              await toggleServer(firecrawlServer.id, false);
+              toggledServers.push({ id: firecrawlServer.id, previousState: true });
+            }
+            // Note: We don't auto-enable Brave/Perplexity - user should do that manually
           }
-          if (perplexityServer?.enabled) {
-            await toggleServer(perplexityServer.id, false);
-            serversChanged = true;
+          
+          // Refresh server list to update UI and notify parent
+          if (toggledServers.length > 0) {
+            await refreshMcpServers();
+            onMcpServersChanged?.();
           }
-          // Enable Firecrawl if it exists and is disabled
-          if (firecrawlServer && !firecrawlServer.enabled) {
-            await toggleServer(firecrawlServer.id, true);
-            serversChanged = true;
+        } catch (toggleErr) {
+          console.error('Failed to auto-toggle MCP servers:', toggleErr);
+          // Attempt rollback of already-toggled servers
+          for (const { id, previousState } of toggledServers) {
+            try {
+              await toggleServer(id, previousState);
+            } catch (rollbackErr) {
+              console.error('Failed to rollback server toggle:', rollbackErr);
+            }
           }
-        } else if (value === 'standard') {
-          // In Standard mode: disable Firecrawl if it's enabled
-          if (firecrawlServer?.enabled) {
-            await toggleServer(firecrawlServer.id, false);
-            serversChanged = true;
-          }
-          // Note: We don't auto-enable Brave/Perplexity - user should do that manually
-        }
-        // Refresh server list to update UI and notify parent
-        if (serversChanged) {
           await refreshMcpServers();
-          onMcpServersChanged?.();
+          // Don't throw - the settings change succeeded, just MCP toggle failed
+          console.warn('MCP server auto-toggle failed, servers may need manual adjustment');
         }
       }
     } catch (err) {

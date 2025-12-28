@@ -1832,6 +1832,12 @@ pub async fn export_card(
 ) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
 
+    // Validate content size (max 10MB)
+    const MAX_EXPORT_SIZE: usize = 10 * 1024 * 1024;
+    if content.len() > MAX_EXPORT_SIZE {
+        return Err("Content too large to export (max 10MB)".to_string());
+    }
+
     let (filter_name, extensions) = match file_type.as_str() {
         "markdown" => ("Markdown", vec!["md"]),
         "html" => ("HTML", vec!["html"]),
@@ -1849,6 +1855,12 @@ pub async fn export_card(
         Some(path) => {
             // FilePath::into_path converts to PathBuf
             let path_buf = path.into_path().map_err(|e| format!("Invalid path: {}", e))?;
+
+            // Validate path is absolute (defense-in-depth, file picker should ensure this)
+            if !path_buf.is_absolute() {
+                return Err("Path must be absolute".to_string());
+            }
+
             std::fs::write(&path_buf, &content)
                 .map_err(|e| format!("Failed to write file: {}", e))?;
             tracing::info!("Exported card to {:?}", path_buf);

@@ -400,24 +400,38 @@ ${suggestedNextHtml}
     return markdown;
   };
 
+  // Helper to copy to clipboard with error handling
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   // Copy to clipboard
   const handleCopy = async () => {
-    try {
-      const markdown = generateMarkdown();
-      await navigator.clipboard.writeText(markdown);
+    const markdown = generateMarkdown();
+    const success = await copyToClipboard(markdown);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
+    } else {
+      console.error('Failed to copy: clipboard not available');
+      alert('Failed to copy to clipboard. Your browser may not support this feature.');
     }
   };
 
   // Export to markdown file
   const handleExport = async (format: 'markdown') => {
+    const markdown = generateMarkdown();
+    
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      
-      const markdown = generateMarkdown();
       const filename = `${briefing.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
       
       await invoke('export_card', {
@@ -427,10 +441,13 @@ ${suggestedNextHtml}
       });
     } catch (error) {
       console.error('Failed to export:', error);
-      // Fallback: copy to clipboard
-      const markdown = generateMarkdown();
-      await navigator.clipboard.writeText(markdown);
-      alert('Export not available. Content copied to clipboard instead.');
+      // Fallback: try to copy to clipboard
+      const clipboardSuccess = await copyToClipboard(markdown);
+      if (clipboardSuccess) {
+        alert('Export not available. Content copied to clipboard instead.');
+      } else {
+        alert('Export failed and clipboard is not available.');
+      }
     }
   };
 
@@ -450,6 +467,13 @@ ${suggestedNextHtml}
       // User cancelled share or share failed
       if ((error as Error).name !== 'AbortError') {
         console.error('Failed to share:', error);
+        // Try clipboard as last resort
+        const markdown = generateMarkdown();
+        const clipboardSuccess = await copyToClipboard(markdown);
+        if (clipboardSuccess) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
       }
     }
   };
