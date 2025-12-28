@@ -21,6 +21,10 @@ export function HistoryPage() {
   const [activeChatBriefing, setActiveChatBriefing] = useState<Briefing | null>(null);
   const [activeChatCardIndex, setActiveChatCardIndex] = useState<number>(0);
   const [cardsWithChats, setCardsWithChats] = useState<Set<string>>(new Set());
+  
+  // Load more state
+  const [visibleCount, setVisibleCount] = useState(20);
+  const loadMoreIncrement = 20;
 
   // Fetch which cards have chat history
   useEffect(() => {
@@ -116,6 +120,18 @@ export function HistoryPage() {
     });
     return result;
   }, [briefings, filters, topics, searchQuery]);
+
+  // Visible briefings (load more pattern)
+  const visibleBriefings = useMemo(() => {
+    return filteredBriefings.slice(0, visibleCount);
+  }, [filteredBriefings, visibleCount]);
+
+  const hasMore = visibleCount < filteredBriefings.length;
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(20);
+  }, [filters, searchQuery]);
 
   useEffect(() => {
     // Only run initial load once, even if effect re-runs (React Strict Mode, HMR, etc.)
@@ -381,7 +397,7 @@ export function HistoryPage() {
         initial="hidden"
         animate="show"
       >
-        {filteredBriefings.map((briefing) => (
+        {visibleBriefings.map((briefing) => (
           <motion.div
             key={briefing.id}
             variants={{
@@ -404,8 +420,19 @@ export function HistoryPage() {
       </motion.div>
 
       {filteredBriefings.length > 0 && (
-        <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          Showing {filteredBriefings.length} briefing{filteredBriefings.length !== 1 ? 's' : ''}
+        <div className="mt-8 flex flex-col items-center gap-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Showing {visibleBriefings.length} of {filteredBriefings.length} briefing{filteredBriefings.length !== 1 ? 's' : ''}
+          </div>
+          
+          {hasMore && (
+            <button
+              onClick={() => setVisibleCount(prev => prev + loadMoreIncrement)}
+              className="px-6 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-medium transition-colors"
+            >
+              Load More
+            </button>
+          )}
         </div>
       )}
 

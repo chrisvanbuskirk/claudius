@@ -762,6 +762,8 @@ impl ResearchAgent {
             "perplexity_ask",
             "fetch_webpage",
         ];
+        // Expensive tools to always exclude (firecrawl_agent uses 100s of credits per call)
+        let expensive_tools = ["firecrawl_agent"];
 
         // Add built-in tools (filtered by mode)
         for tool in get_research_tools() {
@@ -779,6 +781,15 @@ impl ResearchAgent {
         if let Some(ref mcp_client) = self.mcp_client {
             for mcp_tool in mcp_client.get_all_tools() {
                 let tool_name = &mcp_tool.tool.name;
+
+                // Always exclude expensive tools
+                if expensive_tools.iter().any(|et| tool_name.contains(et)) {
+                    tracing::debug!(
+                        "Excluding expensive tool '{}' (high credit usage)",
+                        tool_name
+                    );
+                    continue;
+                }
 
                 // Filter based on research mode
                 let dominated_by_firecrawl =
@@ -1305,15 +1316,27 @@ impl ResearchAgent {
         let prev_year = (now.year() - 1).to_string();
         let month_year = now.format("%B %Y").to_string();
 
-        let system_prompt = format!(
-            r#"You are a research assistant gathering information on topics of interest.
+        // Build mode-specific tool usage instructions
+        let tool_usage_instructions = if self.research_mode == "firecrawl" {
+            format!(
+                r#"CRITICAL SEARCH TOOL USAGE (Firecrawl Deep Research Mode):
+- Use firecrawl_search to find {} articles - it searches AND extracts content in one call
+- Use specific search queries like "[topic] {}" or "[topic] {} latest news"
+- firecrawl_search returns full page content, not just URLs - analyze the results directly
+- Use firecrawl_scrape to get full content from specific URLs you want to analyze deeply
+- Use firecrawl_extract for structured data extraction with custom prompts (great for extracting specific facts)
+- Use firecrawl_map to discover related pages on a website
+- Use get_github_activity for open source projects to see recent commits, PRs, and releases from {}
 
-IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
-
-You have access to the following tools to fetch real-time data:
-{}
-
-CRITICAL SEARCH TOOL USAGE:
+Firecrawl tools handle JavaScript-heavy sites and provide clean markdown content. Use them aggressively for comprehensive research."#,
+                month_year,
+                month_year,
+                current_year,
+                month_year
+            )
+        } else {
+            format!(
+                r#"CRITICAL SEARCH TOOL USAGE:
 - If you have access to brave_search or perplexity search tools, USE THEM FIRST to find {} articles and information
 - Use specific search queries like "[topic] {}" or "[topic] {} latest news"
 - Search tools will give you current URLs and content - these are your primary source for {} information
@@ -1322,7 +1345,27 @@ CRITICAL SEARCH TOOL USAGE:
 
 When using fetch_webpage directly (without search):
 - Target URLs likely to have {} content: TechCrunch, The Verge, Hacker News, company blogs, official documentation
-- Prioritize URLs with "/{}" or "{}" in the path
+- Prioritize URLs with "/{}" or "{}" in the path"#,
+                month_year,
+                month_year,
+                current_year,
+                month_year,
+                month_year,
+                month_year,
+                current_year.to_lowercase(),
+                month_year.to_lowercase().replace(" ", "-")
+            )
+        };
+
+        let system_prompt = format!(
+            r#"You are a research assistant gathering information on topics of interest.
+
+IMPORTANT: Today's date is {}. You must focus on finding information from {} and late {}. Any information from {} or earlier is outdated and should be avoided unless it provides essential background context.
+
+You have access to the following tools to fetch real-time data:
+{}
+
+{}
 
 After gathering current information, provide a comprehensive research summary based on {} data."#,
             current_date,
@@ -1330,14 +1373,7 @@ After gathering current information, provide a comprehensive research summary ba
             current_year,
             prev_year,
             tool_descriptions.join("\n"),
-            month_year,
-            month_year,
-            current_year,
-            month_year,
-            month_year,
-            month_year,
-            current_year.to_lowercase(),
-            month_year.to_lowercase().replace(" ", "-"),
+            tool_usage_instructions,
             month_year
         );
 
@@ -1778,12 +1814,30 @@ When generating cards, avoid creating cards that duplicate these previously cove
             String::new()
         };
 
+        // Adjust content requirements based on research mode
+        let is_deep_research = self.research_mode == "firecrawl";
+        let (min_words_condensed, min_paragraphs_condensed) = if is_deep_research {
+            (800, "8-12")  // Deep research: more comprehensive
+        } else {
+            (400, "5-7")   // Standard: normal length
+        };
+        let (min_words_standard, min_paragraphs_standard) = if is_deep_research {
+            (350, "4-6")   // Deep research: more detailed per card
+        } else {
+            (150, "2-3")   // Standard: normal length
+        };
+        let depth_instruction = if is_deep_research {
+            "\n**DEEP RESEARCH MODE**: You have access to comprehensive web extraction. Provide EXTRA detail, analysis, and insights. Include more sources, deeper technical analysis, and thorough coverage. Users are paying premium credits for this depth - deliver exceptional value."
+        } else {
+            ""
+        };
+
         let prompt = if condense_briefings {
             // Condensed mode: one comprehensive card combining all topics
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize ALL the following research into ONE comprehensive briefing card that tells a cohesive story.
-
+{}
 CRITICAL: ONLY include information from the RESEARCH CONTENT below.
 Do NOT add topics from the deduplication list - that list is ONLY to help you avoid repeating old content.
 {}
@@ -1798,7 +1852,7 @@ Create a SINGLE comprehensive briefing card following these guidelines:
 For the single card, provide:
 - **Title**: A headline summarizing today's key developments (max 80 chars)
 - **Summary**: Overview of all topics covered (3-4 sentences)
-- **Detailed Content**: COMPREHENSIVE analysis using MARKDOWN formatting (minimum 400 words, 5-7 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE analysis using MARKDOWN formatting (minimum {} words, {} full paragraphs)
   - Use **bold text** for section headers and key terms (e.g., **Key Themes**, **Implications**)
   - Use bullet points or numbered lists for multiple items
   - Weave together insights from ALL research topics
@@ -1830,17 +1884,22 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Return the JSON response now:"#,
-                dedup_instruction, research_content
+                depth_instruction, dedup_instruction, research_content, min_words_condensed, min_paragraphs_condensed
             )
         } else {
             // Standard mode: multiple cards
             format!(
                 r#"You are a research assistant creating a personalized daily briefing.
 Synthesize the following research results into clear, actionable briefing cards.
-
+{}
 CRITICAL: ONLY create cards for topics that appear in the RESEARCH CONTENT below. 
 Do NOT create cards for topics mentioned in the deduplication list - that list is ONLY to help you avoid repeating old content.
-If the research content only covers one topic, create cards ONLY for that one topic.
+
+CARD QUALITY GUIDELINES:
+- Prefer fewer, stronger cards over many weak ones
+- You MAY create multiple cards for a single topic IF there are genuinely distinct sub-themes or developments worth separating
+- Each card must be substantial and stand on its own - no filler cards
+- If in doubt, consolidate into fewer comprehensive cards rather than splitting thin content
 {}
 {}
 
@@ -1854,7 +1913,7 @@ Generate briefing cards following these guidelines:
 For each card, provide:
 - **Title**: Clear, specific title (max 60 chars)
 - **Summary**: Brief overview (2-4 sentences) - what the user sees by default
-- **Detailed Content**: COMPREHENSIVE research analysis using MARKDOWN formatting (minimum 150 words, 2-3 full paragraphs)
+- **Detailed Content**: COMPREHENSIVE research analysis using MARKDOWN formatting (minimum {} words, {} full paragraphs)
   - Use **bold** for key terms, important findings, and emphasis
   - Use bullet points or numbered lists when presenting multiple items
   - Include context, implications, technical details, and deeper insights
@@ -1887,7 +1946,7 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Return the JSON response now:"#,
-                dedup_instruction, research_content
+                depth_instruction, dedup_instruction, research_content, min_words_standard, min_paragraphs_standard
             )
         };
 

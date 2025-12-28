@@ -126,10 +126,42 @@ pub fn get_logs_dir() -> PathBuf {
 // MCP Servers
 // ============================================================================
 
+/// Returns default MCP servers for fresh installs (Fetch and Memory - no API keys required)
+fn default_mcp_servers() -> Vec<MCPServer> {
+    vec![
+        MCPServer {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Fetch".to_string(),
+            enabled: true,
+            config: serde_json::json!({
+                "command": "npx",
+                "args": ["-y", "@anthropic/server-fetch"]
+            }),
+            last_used: None,
+        },
+        MCPServer {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Memory".to_string(),
+            enabled: true,
+            config: serde_json::json!({
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-memory"]
+            }),
+            last_used: None,
+        },
+    ]
+}
+
 pub fn read_mcp_servers() -> Result<MCPServersConfig, String> {
     let path = get_mcp_servers_path();
     if !path.exists() {
-        return Ok(MCPServersConfig { servers: vec![] });
+        // First run - create default servers
+        let config = MCPServersConfig {
+            servers: default_mcp_servers(),
+        };
+        // Write defaults so they persist
+        write_mcp_servers(&config)?;
+        return Ok(config);
     }
     let content =
         std::fs::read_to_string(&path).map_err(|e| format!("Failed to read MCP servers: {}", e))?;

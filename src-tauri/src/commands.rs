@@ -1819,6 +1819,61 @@ pub async fn install_update_and_restart(app: tauri::AppHandle) -> Result<(), Str
 }
 
 // ============================================================================
+// Export commands
+// ============================================================================
+
+/// Export content to a file with a save dialog
+#[tauri::command]
+pub async fn export_card(
+    app: tauri::AppHandle,
+    content: String,
+    default_filename: String,
+    file_type: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Validate content size (max 10MB)
+    const MAX_EXPORT_SIZE: usize = 10 * 1024 * 1024;
+    if content.len() > MAX_EXPORT_SIZE {
+        return Err("Content too large to export (max 10MB)".to_string());
+    }
+
+    let (filter_name, extensions) = match file_type.as_str() {
+        "markdown" => ("Markdown", vec!["md"]),
+        "html" => ("HTML", vec!["html"]),
+        _ => ("Text", vec!["txt"]),
+    };
+
+    let file_path = app
+        .dialog()
+        .file()
+        .set_file_name(&default_filename)
+        .add_filter(filter_name, &extensions)
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            // FilePath::into_path converts to PathBuf
+            let path_buf = path.into_path().map_err(|e| format!("Invalid path: {}", e))?;
+
+            // Validate path is absolute (defense-in-depth, file picker should ensure this)
+            if !path_buf.is_absolute() {
+                return Err("Path must be absolute".to_string());
+            }
+
+            std::fs::write(&path_buf, &content)
+                .map_err(|e| format!("Failed to write file: {}", e))?;
+            tracing::info!("Exported card to {:?}", path_buf);
+            Ok(true)
+        }
+        None => {
+            // User cancelled
+            Ok(false)
+        }
+    }
+}
+
+// ============================================================================
 // Print commands
 // ============================================================================
 

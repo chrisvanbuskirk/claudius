@@ -84,6 +84,7 @@ function ConfirmDialog({
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('interests');
+  const [tabKey, setTabKey] = useState(0); // Used to force remount of tabs
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'interests', label: 'Interests' },
@@ -122,9 +123,9 @@ export function SettingsPage() {
         </div>
 
         <div className="p-6">
-          {activeTab === 'interests' && <InterestsTab />}
-          {activeTab === 'mcp' && <MCPServersTab />}
-          {activeTab === 'research' && <ResearchSettingsTab />}
+          {activeTab === 'interests' && <InterestsTab key={`interests-${tabKey}`} />}
+          {activeTab === 'mcp' && <MCPServersTab key={`mcp-${tabKey}`} />}
+          {activeTab === 'research' && <ResearchSettingsTab key={`research-${tabKey}`} onMcpServersChanged={() => setTabKey(k => k + 1)} />}
         </div>
       </div>
     </div>
@@ -156,6 +157,18 @@ function InterestsTab() {
   const handleToggleTopic = async (topicId: string, enabled: boolean) => {
     await updateTopic(topicId, undefined, undefined, enabled);
   };
+
+  const handleToggleAll = async (enabled: boolean) => {
+    // Toggle all topics in parallel for better performance
+    const topicsToToggle = topics.filter(topic => topic.enabled !== enabled);
+    await Promise.all(
+      topicsToToggle.map(topic => updateTopic(topic.id, undefined, undefined, enabled))
+    );
+  };
+
+  // Calculate if all topics are enabled (for the toggle all switch state)
+  const allEnabled = topics.length > 0 && topics.every(t => t.enabled);
+  const someEnabled = topics.some(t => t.enabled);
 
   const handleDeleteTopic = (topic: { id: string; name: string }) => {
     setDeleteConfirm(topic);
@@ -265,6 +278,27 @@ function InterestsTab() {
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Toggle All Switch */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/30 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {allEnabled ? 'All topics enabled' : someEnabled ? 'Some topics enabled' : 'All topics disabled'}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ({topics.filter(t => t.enabled).length}/{topics.length})
+              </span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allEnabled}
+                onChange={(e) => handleToggleAll(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+            </label>
+          </div>
+
           {topics.map((topic) => (
             <div
               key={topic.id}
@@ -1319,7 +1353,7 @@ function MCPServersTab() {
   );
 }
 
-function ResearchSettingsTab() {
+function ResearchSettingsTab({ onMcpServersChanged }: { onMcpServersChanged?: () => void }) {
   const { settings, loading, updateSettings, runResearch } = useSettings();
   const { maskedKey, hasKey, loading: apiKeyLoading, setApiKey } = useApiKey();
   const {
@@ -1328,15 +1362,25 @@ function ResearchSettingsTab() {
     loading: openaiKeyLoading,
     setApiKey: setOpenaiApiKey
   } = useOpenAIApiKey();
-  const { servers: mcpServers } = useMCPServers();
+  const { servers: mcpServers, toggleServer, getServers: refreshMcpServers } = useMCPServers();
   const [running, setRunning] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState<string | null>(null);
   
-  // Check if Firecrawl MCP server is configured
-  const hasFirecrawlConfigured = mcpServers.some(s => 
+  // Check if specific MCP servers are configured
+  const firecrawlServer = mcpServers.find(s => 
     s.name.toLowerCase().includes('firecrawl') || 
     (s.config && JSON.stringify(s.config).toLowerCase().includes('firecrawl'))
   );
+  const braveServer = mcpServers.find(s => 
+    s.name.toLowerCase().includes('brave') || 
+    (s.config && JSON.stringify(s.config).toLowerCase().includes('brave'))
+  );
+  const perplexityServer = mcpServers.find(s => 
+    s.name.toLowerCase().includes('perplexity') || 
+    (s.config && JSON.stringify(s.config).toLowerCase().includes('perplexity'))
+  );
+  
+  const hasFirecrawlConfigured = !!firecrawlServer;
 
   // Auto-save helper with visual feedback
   const autoSave = async (key: string, value: unknown) => {
@@ -1345,6 +1389,57 @@ function ResearchSettingsTab() {
       await updateSettings({ ...settings, [key]: value });
       setSavedIndicator(key);
       setTimeout(() => setSavedIndicator(null), 1500);
+      
+      // Handle MCP server toggling based on research mode
+      if (key === 'research_mode') {
+        // Track changes for potential rollback
+        const toggledServers: { id: string; previousState: boolean }[] = [];
+        
+        try {
+          if (value === 'firecrawl') {
+            // In Firecrawl mode: disable Brave/Perplexity if they're enabled
+            if (braveServer?.enabled) {
+              await toggleServer(braveServer.id, false);
+              toggledServers.push({ id: braveServer.id, previousState: true });
+            }
+            if (perplexityServer?.enabled) {
+              await toggleServer(perplexityServer.id, false);
+              toggledServers.push({ id: perplexityServer.id, previousState: true });
+            }
+            // Enable Firecrawl if it exists and is disabled
+            if (firecrawlServer && !firecrawlServer.enabled) {
+              await toggleServer(firecrawlServer.id, true);
+              toggledServers.push({ id: firecrawlServer.id, previousState: false });
+            }
+          } else if (value === 'standard') {
+            // In Standard mode: disable Firecrawl if it's enabled
+            if (firecrawlServer?.enabled) {
+              await toggleServer(firecrawlServer.id, false);
+              toggledServers.push({ id: firecrawlServer.id, previousState: true });
+            }
+            // Note: We don't auto-enable Brave/Perplexity - user should do that manually
+          }
+          
+          // Refresh server list to update UI and notify parent
+          if (toggledServers.length > 0) {
+            await refreshMcpServers();
+            onMcpServersChanged?.();
+          }
+        } catch (toggleErr) {
+          console.error('Failed to auto-toggle MCP servers:', toggleErr);
+          // Attempt rollback of already-toggled servers
+          for (const { id, previousState } of toggledServers) {
+            try {
+              await toggleServer(id, previousState);
+            } catch (rollbackErr) {
+              console.error('Failed to rollback server toggle:', rollbackErr);
+            }
+          }
+          await refreshMcpServers();
+          // Don't throw - the settings change succeeded, just MCP toggle failed
+          console.warn('MCP server auto-toggle failed, servers may need manual adjustment');
+        }
+      }
     } catch (err) {
       console.error('Failed to save setting:', err);
     }

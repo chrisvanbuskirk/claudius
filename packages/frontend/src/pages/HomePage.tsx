@@ -151,15 +151,9 @@ export function HomePage() {
     setResearchError(null); // Clear any previous errors
 
     try {
-      // Add 12-minute timeout to account for research + image generation
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Research timeout - please try again')), 12 * 60 * 1000)
-      );
-
-      await Promise.race([
-        invoke('run_research_now'),
-        timeoutPromise
-      ]);
+      // No frontend timeout - let the backend handle it
+      // Research can take 20+ minutes with many topics in deep research mode + image generation
+      await invoke('run_research_now');
       // Success: Don't refresh here - the research:completed event triggers
       // the useEffect which refreshes briefings AFTER progress shows "complete"
     } catch (err) {
