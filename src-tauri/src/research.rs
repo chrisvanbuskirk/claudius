@@ -1639,34 +1639,46 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 };
 
                 // Rate-limit expensive tools (firecrawl_agent: 5 free/day, then 200-600 credits)
+                const FIRECRAWL_AGENT_DAILY_LIMIT: i64 = 5;
                 let is_firecrawl_agent = tool_name.contains("firecrawl_agent");
                 let rate_limited = if is_firecrawl_agent && self.rate_limit_firecrawl_agent {
                     // Check how many firecrawl_agent calls we've made today
-                    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let daily_count = crate::db::get_connection()
-                        .ok()
-                        .and_then(|conn| {
-                            conn.query_row(
+                    // Use SQLite date range for reliable comparison across timezones
+                    let daily_count = match crate::db::get_connection() {
+                        Ok(conn) => {
+                            match conn.query_row(
                                 "SELECT COUNT(*) FROM research_logs
                                  WHERE tool_name LIKE '%firecrawl_agent%'
-                                 AND DATE(created_at) = ?",
-                                [&today],
+                                 AND created_at >= DATE('now', 'localtime', 'start of day')
+                                 AND created_at < DATE('now', 'localtime', 'start of day', '+1 day')",
+                                [],
                                 |row| row.get::<_, i64>(0),
-                            )
-                            .ok()
-                        })
-                        .unwrap_or(0);
+                            ) {
+                                Ok(count) => count,
+                                Err(e) => {
+                                    error!("Failed to query firecrawl_agent usage: {}", e);
+                                    // Fail closed: assume limit exceeded to prevent unexpected charges
+                                    FIRECRAWL_AGENT_DAILY_LIMIT + 1
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Database connection failed during rate limit check: {}", e);
+                            // Fail closed: assume limit exceeded to prevent unexpected charges
+                            FIRECRAWL_AGENT_DAILY_LIMIT + 1
+                        }
+                    };
 
-                    if daily_count >= 5 {
+                    if daily_count >= FIRECRAWL_AGENT_DAILY_LIMIT {
                         warn!(
-                            "firecrawl_agent rate limited: {} calls today (limit: 5)",
-                            daily_count
+                            "firecrawl_agent rate limited: {} calls today (limit: {})",
+                            daily_count, FIRECRAWL_AGENT_DAILY_LIMIT
                         );
                         true
                     } else {
                         info!(
-                            "firecrawl_agent allowed: {} of 5 daily calls used",
-                            daily_count
+                            "firecrawl_agent allowed: {} of {} daily calls used",
+                            daily_count, FIRECRAWL_AGENT_DAILY_LIMIT
                         );
                         false
                     }
@@ -1677,8 +1689,8 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                 let result = if rate_limited {
                     // Return error for rate-limited tools
                     Err(format!(
-                        "Tool '{}' has reached its daily limit (5 calls). Please use firecrawl_search, firecrawl_scrape, or firecrawl_extract instead.",
-                        tool_name
+                        "Tool '{}' has reached its daily limit ({} calls). Please use firecrawl_search, firecrawl_scrape, or firecrawl_extract instead.",
+                        tool_name, FIRECRAWL_AGENT_DAILY_LIMIT
                     ))
                 } else if self.is_builtin_tool(tool_name) {
                     // Execute built-in tool
