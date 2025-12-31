@@ -1869,6 +1869,48 @@ function ResearchSettingsTab({ onMcpServersChanged }: { onMcpServersChanged?: ()
               </p>
             </motion.div>
           )}
+
+          {/* Firecrawl Agent Rate Limiting - Only show in Firecrawl mode */}
+          {(settings.research_mode ?? 'standard') === 'firecrawl' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 p-3 bg-gray-100 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+            >
+              <div className="flex items-start gap-3">
+                <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={settings.rate_limit_firecrawl_agent ?? true}
+                    onChange={(e) => autoSave('rate_limit_firecrawl_agent', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-500 peer-checked:bg-primary-600"></div>
+                </label>
+                <div>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">
+                    Limit Firecrawl Agent (5/day)
+                    {savedIndicator === 'rate_limit_firecrawl_agent' && (
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="ml-2 text-xs text-green-600 dark:text-green-400"
+                      >
+                        Saved ✓
+                      </motion.span>
+                    )}
+                  </span>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Firecrawl gives 5 free agent calls per day. After that, each call costs 200-600 credits.
+                    {(settings.rate_limit_firecrawl_agent ?? true)
+                      ? " Rate limiting is ON - calls will be blocked after 5/day."
+                      : " Rate limiting is OFF - unlimited agent calls (credits will be charged)."}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Web Search Section - Only show if not in Firecrawl mode */}

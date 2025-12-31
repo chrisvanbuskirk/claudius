@@ -1,6 +1,6 @@
 {
   "name": "@claudius/cli",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "CLI for Claudius - personalized research briefings",
   "type": "module",
   "bin": {

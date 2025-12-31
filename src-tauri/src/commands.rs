@@ -56,6 +56,12 @@ pub struct ResearchSettings {
     pub enable_image_generation: bool, // Generate header images using DALL-E
     #[serde(default = "default_research_mode")]
     pub research_mode: String, // "standard" | "firecrawl" - determines which tools are used
+    #[serde(default = "default_rate_limit_firecrawl_agent")]
+    pub rate_limit_firecrawl_agent: bool, // Limit firecrawl_agent to 5 calls/day (free tier)
+}
+
+fn default_rate_limit_firecrawl_agent() -> bool {
+    true
 }
 
 fn default_notification_sound() -> bool {
@@ -159,6 +165,7 @@ fn read_settings() -> Result<ResearchSettings, String> {
             dedup_threshold: default_dedup_threshold(),
             enable_image_generation: true,
             research_mode: default_research_mode(),
+            rate_limit_firecrawl_agent: default_rate_limit_firecrawl_agent(),
         });
     }
     let content =
@@ -429,6 +436,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         dedup_threshold: default_dedup_threshold(),
         enable_image_generation: true,
         research_mode: default_research_mode(),
+        rate_limit_firecrawl_agent: default_rate_limit_firecrawl_agent(),
     });
 
     // Get API key from file-based storage
@@ -514,6 +522,7 @@ pub async fn trigger_research(app: tauri::AppHandle) -> Result<String, String> {
         Some(settings.model.clone()),
         settings.enable_web_search,
         settings.research_mode.clone(),
+        settings.rate_limit_firecrawl_agent,
     );
     agent.set_cancellation_token(cancellation_token);
 
