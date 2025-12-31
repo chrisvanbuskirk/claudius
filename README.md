@@ -313,6 +313,26 @@ Uses [Firecrawl](https://www.firecrawl.dev/) MCP for comprehensive web extractio
 
 **Note:** When Deep Research mode is selected, Standard mode tools (Brave, Perplexity, fetch_webpage) are automatically excluded to prevent tool confusion.
 
+### Firecrawl Agent Rate Limiting
+
+Firecrawl provides a powerful `firecrawl_agent` tool that can autonomously crawl and analyze multiple pages. However, this tool is credit-intensive:
+
+| Usage | Cost |
+|-------|------|
+| First 5 calls/day | **Free** |
+| After 5 calls/day | 200-600 credits per call |
+
+**Rate Limiting (Enabled by Default):**
+
+Claudius automatically limits `firecrawl_agent` to 5 calls per day to keep you within the free tier. When the limit is reached, Claude is instructed to use the cheaper alternatives (`firecrawl_search`, `firecrawl_scrape`, `firecrawl_extract`).
+
+**To disable rate limiting** (if you want unlimited agent calls and are willing to pay credits):
+1. Open Settings → Research
+2. Select "Deep Research (Firecrawl)" mode
+3. Toggle off "Limit Firecrawl Agent (5/day)"
+
+**Note:** The daily count resets at midnight local time. You can check today's usage in the research logs.
+
 ## AI-Generated Images (DALL-E)
 
 Claudius can generate unique header images for each briefing card using OpenAI's DALL-E 3 API.

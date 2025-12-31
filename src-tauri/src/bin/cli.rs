@@ -816,6 +816,7 @@ async fn handle_research(action: ResearchAction, json: bool) -> Result<(), Strin
                 Some(settings.model.clone()),
                 settings.enable_web_search,
                 settings.research_mode.clone(),
+                settings.rate_limit_firecrawl_agent,
             );
 
             let start = std::time::Instant::now();

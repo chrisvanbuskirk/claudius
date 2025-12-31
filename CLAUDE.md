@@ -140,6 +140,17 @@ Uses Firecrawl MCP for comprehensive web extraction. Better for complex topics r
 - If Firecrawl mode is selected but Firecrawl MCP isn't configured, research fails with a clear error message
 - Users are prompted to either configure Firecrawl or switch to Standard mode
 
+**Firecrawl Agent Rate Limiting:**
+The `firecrawl_agent` tool is especially credit-intensive (200-600 credits per call after Firecrawl's free tier). Claudius implements rate limiting to protect users:
+
+- **Limit**: 5 calls per day (matches Firecrawl's free tier)
+- **Constant**: `FIRECRAWL_AGENT_DAILY_LIMIT` in `research.rs`
+- **Behavior**: Fails closed - if DB query fails, assumes limit exceeded
+- **Setting**: `rate_limit_firecrawl_agent` (default: `true`)
+- **UI**: Toggle appears in Settings only when Deep Research mode is selected
+
+When rate limited, Claude receives an error guiding it to use `firecrawl_search`, `firecrawl_scrape`, or `firecrawl_extract` instead.
+
 ### Graceful Degradation
 
 - If MCP servers fail to initialize, research continues with built-in tools

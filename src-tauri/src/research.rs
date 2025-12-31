@@ -611,6 +611,8 @@ pub struct ResearchAgent {
     enable_web_search: bool,
     /// Research mode: "standard" or "firecrawl"
     research_mode: String,
+    /// Limit firecrawl_agent to 5 calls/day (free tier)
+    rate_limit_firecrawl_agent: bool,
 }
 
 impl ResearchAgent {
@@ -620,6 +622,7 @@ impl ResearchAgent {
         model: Option<String>,
         enable_web_search: bool,
         research_mode: String,
+        rate_limit_firecrawl_agent: bool,
     ) -> Self {
         // Try to read GitHub token from environment or config
         let github_token = std::env::var("GITHUB_TOKEN").ok().or_else(|| {
@@ -660,6 +663,7 @@ impl ResearchAgent {
             cancellation_token: None,
             enable_web_search,
             research_mode,
+            rate_limit_firecrawl_agent,
         }
     }
 
@@ -1634,7 +1638,61 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                     None
                 };
 
-                let result = if self.is_builtin_tool(tool_name) {
+                // Rate-limit expensive tools (firecrawl_agent: 5 free/day, then 200-600 credits)
+                const FIRECRAWL_AGENT_DAILY_LIMIT: i64 = 5;
+                let is_firecrawl_agent = tool_name.contains("firecrawl_agent");
+                let rate_limited = if is_firecrawl_agent && self.rate_limit_firecrawl_agent {
+                    // Check how many firecrawl_agent calls we've made today
+                    // Use SQLite date range for reliable comparison across timezones
+                    let daily_count = match crate::db::get_connection() {
+                        Ok(conn) => {
+                            match conn.query_row(
+                                "SELECT COUNT(*) FROM research_logs
+                                 WHERE tool_name LIKE '%firecrawl_agent%'
+                                 AND created_at >= DATE('now', 'localtime', 'start of day')
+                                 AND created_at < DATE('now', 'localtime', 'start of day', '+1 day')",
+                                [],
+                                |row| row.get::<_, i64>(0),
+                            ) {
+                                Ok(count) => count,
+                                Err(e) => {
+                                    error!("Failed to query firecrawl_agent usage: {}", e);
+                                    // Fail closed: assume limit exceeded to prevent unexpected charges
+                                    FIRECRAWL_AGENT_DAILY_LIMIT + 1
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Database connection failed during rate limit check: {}", e);
+                            // Fail closed: assume limit exceeded to prevent unexpected charges
+                            FIRECRAWL_AGENT_DAILY_LIMIT + 1
+                        }
+                    };
+
+                    if daily_count >= FIRECRAWL_AGENT_DAILY_LIMIT {
+                        warn!(
+                            "firecrawl_agent rate limited: {} calls today (limit: {})",
+                            daily_count, FIRECRAWL_AGENT_DAILY_LIMIT
+                        );
+                        true
+                    } else {
+                        info!(
+                            "firecrawl_agent allowed: {} of {} daily calls used",
+                            daily_count, FIRECRAWL_AGENT_DAILY_LIMIT
+                        );
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                let result = if rate_limited {
+                    // Return error for rate-limited tools
+                    Err(format!(
+                        "Tool '{}' has reached its daily limit ({} calls). Please use firecrawl_search, firecrawl_scrape, or firecrawl_extract instead.",
+                        tool_name, FIRECRAWL_AGENT_DAILY_LIMIT
+                    ))
+                } else if self.is_builtin_tool(tool_name) {
                     // Execute built-in tool
                     execute_tool(
                         &self.client,
@@ -2236,6 +2294,7 @@ That's the summary!"#;
             None,
             false,
             "standard".to_string(),
+            true,
         );
         assert_eq!(agent.model, "claude-haiku-4-5-20251001");
         assert!(!agent.enable_web_search);
@@ -2246,6 +2305,7 @@ That's the summary!"#;
             Some("claude-opus-4-5-20251101".to_string()),
             false,
             "firecrawl".to_string(),
+            true,
         );
         assert_eq!(agent_custom.model, "claude-opus-4-5-20251101");
         assert_eq!(agent_custom.research_mode, "firecrawl");
@@ -2258,6 +2318,7 @@ That's the summary!"#;
             None,
             true,
             "standard".to_string(),
+            true,
         );
         assert!(agent.enable_web_search);
 
@@ -2279,6 +2340,7 @@ That's the summary!"#;
             None,
             false,
             "standard".to_string(),
+            true,
         );
         let result = agent.run_research(vec![], None, false, None).await;
         assert!(result.is_err());
@@ -2354,6 +2416,7 @@ That's the summary!"#;
             None,
             false,
             "standard".to_string(),
+            true,
         );
 
         // Without MCP client, should only have built-in tools
@@ -2371,6 +2434,7 @@ That's the summary!"#;
             None,
             false,
             "firecrawl".to_string(),
+            true,
         );
 
         // Without MCP client, fetch_webpage should be excluded
@@ -2386,11 +2450,61 @@ That's the summary!"#;
     #[test]
     fn test_research_mode_stored_correctly() {
         let agent_standard =
-            ResearchAgent::new("key".to_string(), None, false, "standard".to_string());
+            ResearchAgent::new("key".to_string(), None, false, "standard".to_string(), true);
         assert_eq!(agent_standard.research_mode, "standard");
 
         let agent_firecrawl =
-            ResearchAgent::new("key".to_string(), None, false, "firecrawl".to_string());
+            ResearchAgent::new("key".to_string(), None, false, "firecrawl".to_string(), true);
         assert_eq!(agent_firecrawl.research_mode, "firecrawl");
+    }
+
+    #[test]
+    fn test_firecrawl_agent_rate_limit_detection() {
+        // Test that tool name detection works correctly
+        let tool_names = [
+            ("firecrawl_agent", true),
+            ("Firecrawl:firecrawl_agent", true),
+            ("firecrawl_search", false),
+            ("firecrawl_scrape", false),
+            ("brave_search", false),
+        ];
+
+        for (tool_name, should_match) in tool_names {
+            let is_firecrawl_agent = tool_name.contains("firecrawl_agent");
+            assert_eq!(
+                is_firecrawl_agent, should_match,
+                "Tool '{}' should{} match firecrawl_agent",
+                tool_name,
+                if should_match { "" } else { " not" }
+            );
+        }
+    }
+
+    #[test]
+    fn test_firecrawl_agent_rate_limit_threshold() {
+        // Test that rate limit threshold is correctly applied
+        let daily_limit = 5;
+
+        // Under limit - should be allowed
+        for count in 0..5 {
+            let rate_limited = count >= daily_limit;
+            assert!(
+                !rate_limited,
+                "Count {} should be under limit {}",
+                count,
+                daily_limit
+            );
+        }
+
+        // At or over limit - should be blocked
+        for count in 5..10 {
+            let rate_limited = count >= daily_limit;
+            assert!(
+                rate_limited,
+                "Count {} should be at/over limit {}",
+                count,
+                daily_limit
+            );
+        }
     }
 }

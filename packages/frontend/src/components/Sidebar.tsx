@@ -65,7 +65,7 @@ export function Sidebar() {
 
       <div className="p-4 border-t border-white/10">
         <div className="text-xs text-gray-400 dark:text-gray-500 text-center">
-          v0.5.2
+          v0.5.3
         </div>
       </div>
     </aside>
