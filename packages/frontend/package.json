@@ -1,6 +1,6 @@
 {
   "name": "@claudius/frontend",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Frontend for Claudius - React + Vite + Tauri",
   "type": "module",
   "scripts": {
