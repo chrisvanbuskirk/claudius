@@ -1703,8 +1703,34 @@ Provide a concise but informative research summary (2-3 paragraphs) based on cur
                     .await
                 } else if let Some(ref mut mcp_client) = self.mcp_client {
                     // Execute MCP tool
+                    // For Firecrawl tools, inject onlyMainContent: true to reduce token usage
+                    let firecrawl_content_tools = [
+                        "firecrawl_scrape",
+                        "firecrawl_search",
+                        "firecrawl_extract",
+                        "firecrawl_crawl",
+                    ];
+                    let tool_args = if firecrawl_content_tools
+                        .iter()
+                        .any(|t| tool_name.contains(t))
+                    {
+                        let mut args = tool_input.clone();
+                        if let Some(obj) = args.as_object_mut() {
+                            // Only set if not already specified
+                            if !obj.contains_key("onlyMainContent") {
+                                obj.insert("onlyMainContent".to_string(), json!(true));
+                                debug!(
+                                    "Injected onlyMainContent=true for Firecrawl tool: {}",
+                                    tool_name
+                                );
+                            }
+                        }
+                        args
+                    } else {
+                        tool_input.clone()
+                    };
                     mcp_client
-                        .call_tool(tool_name, tool_input.clone())
+                        .call_tool(tool_name, tool_args)
                         .map(|v| {
                             if let Some(s) = v.as_str() {
                                 s.to_string()
