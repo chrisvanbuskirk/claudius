@@ -1,3 +1,7 @@
+> [!WARNING]
+> ## Retired project
+> Claudius is no longer maintained or distributed. Its research and automation workflows are now better served by ChatGPT Desktop with Codex and Claude Desktop. This repository remains available as an archive; no new releases, support, or security updates are planned.
+
 <p align="center">
   <img src="src-tauri/icons/128x128.png" alt="Claudius Icon" width="128" height="128">
 </p>
